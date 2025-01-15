@@ -85,6 +85,9 @@ class OBJECT_OT_TakeSnapshot(bpy.types.Operator):
         item.name = filename
         item.filepath = filepath
 
+        # Automatically select the new snapshot in the list
+        context.scene.snapshot_list_index = len(context.scene.snapshot_list) - 1
+
         self.report({'INFO'}, f"Snapshot saved to {filepath}")
         snapshot_texture = None  # Reset the texture
         snapshot_image = None  # Reset the image
