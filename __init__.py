@@ -5,7 +5,7 @@ bl_info = {
     "blender": (4, 0, 0),
     "location": "UI",
     "description": "Take a snapshot of the current 3D view",
-    "version": (1, 1)
+    "version": (1, 3)
 }
 
 import bpy
@@ -13,12 +13,23 @@ import os
 import gpu
 from gpu.types import GPUShader
 from gpu_extras.batch import batch_for_shader
+import webbrowser
 
 # Global variables to store the image, texture, and handler
 snapshot_image = None
 snapshot_texture = None
 display_snapshot_state = False  # 该变量用于判断缓存画面是否打开
 draw_handler = None
+
+# Get the directory of the current script (plugin directory)
+addon_directory = os.path.dirname(__file__)
+
+# Directory to store snapshots
+snapshot_dir = os.path.join(addon_directory, "snapshots")
+
+# Ensure the snapshot directory exists
+if not os.path.exists(snapshot_dir):
+    os.makedirs(snapshot_dir)
 
 # Custom shader for blending with alpha
 vertex_shader = '''
@@ -63,10 +74,10 @@ class OBJECT_OT_TakeSnapshot(bpy.types.Operator):
     
     def execute(self, context):
         global snapshot_texture, snapshot_image
-        # Save the snapshot to a directory with write permissions
-        user_home_dir = os.path.expanduser("~")
+
+        # Save the snapshot to the snapshot directory
         filename = f"snapshot_{len(context.scene.snapshot_list)}.png"
-        filepath = os.path.join(user_home_dir, filename)
+        filepath = os.path.join(snapshot_dir, filename)
         bpy.ops.screen.screenshot_area(filepath=filepath)
         
         # Create a new item and add the file path to the collection
@@ -172,6 +183,28 @@ class OBJECT_OT_SelectSnapshot(bpy.types.Operator):
 
         return {'FINISHED'}
 
+# Define the operator for opening the snapshots folder
+class OBJECT_OT_OpenSnapshotsFolder(bpy.types.Operator):
+    bl_idname = "object.open_snapshots_folder"
+    bl_label = "Open Snapshots Folder"
+    bl_description = "Open the folder where snapshots are stored"
+
+    def execute(self, context):
+        webbrowser.open(snapshot_dir)
+        self.report({'INFO'}, "Snapshots folder opened")
+        return {'FINISHED'}
+
+# Define the operator for clearing the snapshot list
+class OBJECT_OT_ClearSnapshotList(bpy.types.Operator):
+    bl_idname = "object.clear_snapshot_list"
+    bl_label = "Clear Snapshot List"
+    bl_description = "Clear the snapshot list without deleting the files"
+
+    def execute(self, context):
+        context.scene.snapshot_list.clear()
+        self.report({'INFO'}, "Snapshot list cleared")
+        return {'FINISHED'}
+
 # Define the draw function 提供了一个绘制画面的函数
 def draw_snapshot(context):
     global snapshot_texture
@@ -225,9 +258,20 @@ class VIEW3D_PT_SnapshotPanel(bpy.types.Panel):
         layout.label(text="Snapshot List:")
         col = layout.column()
         col.template_list("UL_SnapshotList", "snapshot_list", context.scene, "snapshot_list", context.scene, "snapshot_list_index")
+        layout.operator("object.open_snapshots_folder", text="Open Snapshots Folder")
+        layout.operator("object.clear_snapshot_list", text="Clear Snapshot List")
 
 ### 注册类函数 ###
-allClass = [SnapshotItem, OBJECT_OT_TakeSnapshot, OBJECT_OT_DisplaySnapshot, OBJECT_OT_SelectSnapshot, UL_SnapshotList, VIEW3D_PT_SnapshotPanel]
+allClass = [
+    SnapshotItem, 
+    OBJECT_OT_TakeSnapshot, 
+    OBJECT_OT_DisplaySnapshot, 
+    OBJECT_OT_SelectSnapshot, 
+    OBJECT_OT_OpenSnapshotsFolder, 
+    OBJECT_OT_ClearSnapshotList, 
+    UL_SnapshotList, 
+    VIEW3D_PT_SnapshotPanel
+]
 
 def register():
     for cls in allClass:
