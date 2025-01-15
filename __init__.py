@@ -1,23 +1,49 @@
 bl_info = {
     "name": "Snapshot",
     "category": "3D View",
-    "author": "Github copilot",
-    "blender": (3, 0, 0),
+    "author": "Github copilot & visnz",
+    "blender": (4, 0, 0),
     "location": "UI",
     "description": "Take a snapshot of the current 3D view",
-    "version": (1, 0)
+    "version": (1, 1)
 }
 import bpy
 import os
 import gpu
+from gpu.types import GPUOffScreen, GPUShader
 from gpu_extras.batch import batch_for_shader
 
 # Global variables to store the image, texture, and handler
 snapshot_image = None
 snapshot_texture = None
-display_snapshot = False
+display_snapshot_state = False ## 该变量用于判断缓存画面是否打开
 draw_handler = None
+# Custom shader for blending with alpha
+vertex_shader = '''
+    uniform mat4 ModelViewProjectionMatrix;
+    in vec2 pos;
+    in vec2 texCoord;
+    out vec2 texCoord_interp;
 
+    void main()
+    {
+        gl_Position = ModelViewProjectionMatrix * vec4(pos.xy, 0.0, 1.0);
+        texCoord_interp = texCoord;
+    }
+'''
+
+fragment_shader = '''
+    uniform sampler2D image;
+    uniform float opacity;
+    in vec2 texCoord_interp;
+    out vec4 fragColor;
+
+    void main()
+    {
+        vec4 color = texture(image, texCoord_interp);
+        fragColor = vec4(color.rgb, color.a * opacity);
+    }
+'''
 # Define the operator for taking a snapshot
 class OBJECT_OT_TakeSnapshot(bpy.types.Operator):
     bl_idname = "object.take_snapshot"
@@ -37,17 +63,17 @@ class OBJECT_OT_TakeSnapshot(bpy.types.Operator):
 
 # Define the operator for displaying the snapshot
 class OBJECT_OT_DisplaySnapshot(bpy.types.Operator):
-    bl_idname = "object.display_snapshot"
+    bl_idname = "object.display_snapshot_state"
     bl_label = "Display Snapshot"
     bl_description = "Display the saved snapshot over the 3D view"
     
     def execute(self, context):
-        global snapshot_texture, display_snapshot, draw_handler
+        global snapshot_texture, display_snapshot_state, draw_handler
 
-        # Toggle the display state
-        display_snapshot = not display_snapshot
+        # Toggle the display state 每按一次进行一次反转
+        display_snapshot_state = not display_snapshot_state
         
-        if display_snapshot:
+        if display_snapshot_state:
             # Load the snapshot image
             if 'snapshot_filepath' in context.scene:
                 filepath = context.scene['snapshot_filepath']
@@ -78,7 +104,7 @@ class OBJECT_OT_DisplaySnapshot(bpy.types.Operator):
         
         return {'FINISHED'}
 
-# Define the draw function
+# Define the draw function 提供了一个绘制画面的函数
 def draw_snapshot(context):
     global snapshot_texture
     if snapshot_texture:
@@ -86,9 +112,12 @@ def draw_snapshot(context):
         region = context.region
         width = region.width
         height = region.height
-        
-        # Draw the image using GPU module
-        shader = gpu.shader.from_builtin('IMAGE')
+
+        # Get the opacity value
+        opacity = context.scene.snapshot_opacity / 100.0
+
+        # Draw the image using GPU module with custom shader
+        shader = GPUShader(vertex_shader, fragment_shader)
         batch = batch_for_shader(
             shader, 'TRI_FAN',
             {
@@ -98,11 +127,12 @@ def draw_snapshot(context):
         )
         gpu.state.blend_set('ALPHA')
         shader.bind()
+        shader.uniform_float("opacity", opacity)
         shader.uniform_sampler("image", snapshot_texture)
         batch.draw(shader)
         gpu.state.blend_set('NONE')
 
-# Define the panel
+### 面板类函数 ###
 class VIEW3D_PT_SnapshotPanel(bpy.types.Panel):
     bl_label = "Snapshot Panel"
     bl_idname = "VIEW3D_PT_snapshot_panel"
@@ -113,18 +143,28 @@ class VIEW3D_PT_SnapshotPanel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         layout.operator("object.take_snapshot", text="Take Snapshot")
-        layout.operator("object.display_snapshot", text="Display Snapshot")
+        layout.operator("object.display_snapshot_state", text="Display Snapshot")
+        layout.prop(context.scene, "snapshot_opacity", text="Snapshot Opacity")
 
-# Register the classes
+### 注册类函数 ###
+
+allClass=[OBJECT_OT_TakeSnapshot,OBJECT_OT_DisplaySnapshot,VIEW3D_PT_SnapshotPanel]
+
 def register():
-    bpy.utils.register_class(OBJECT_OT_TakeSnapshot)
-    bpy.utils.register_class(OBJECT_OT_DisplaySnapshot)
-    bpy.utils.register_class(VIEW3D_PT_SnapshotPanel)
+    for i in allClass:
+        bpy.utils.register_class(i)
+    bpy.types.Scene.snapshot_opacity = bpy.props.IntProperty(
+        name="Snapshot Opacity",
+        description="Opacity of the snapshot overlay",
+        default=100,
+        min=0,
+        max=100
+    )
 
 def unregister():
-    bpy.utils.unregister_class(OBJECT_OT_TakeSnapshot)
-    bpy.utils.unregister_class(OBJECT_OT_DisplaySnapshot)
-    bpy.utils.unregister_class(VIEW3D_PT_SnapshotPanel)
+    del bpy.types.Scene.snapshot_opacity
+    for i in allClass:
+        bpy.utils.unregister_class(i)
 
 if __name__ == "__main__":
     register()
