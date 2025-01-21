@@ -1,16 +1,17 @@
 bl_info = {
-    "name": "Snapshot",
+    "name": "Snapshot and STOOL",
     "category": "3D View",
     "author": "GitHub Copilot & visnz",
     "blender": (4, 0, 0),
     "location": "UI",
-    "description": "Take a snapshot of the current 3D view",
-    "version": (1, 3)
+    "description": "Take a snapshot of the current 3D view and manage parenting operations",
+    "version": (1, 0, 0)
 }
 
 import bpy
 import os
 import gpu
+from bpy.types import Operator
 from gpu.types import GPUShader
 from gpu_extras.batch import batch_for_shader
 import webbrowser
@@ -67,7 +68,7 @@ class SnapshotItem(bpy.types.PropertyGroup):
     filepath: bpy.props.StringProperty()
 
 # Define the operator for taking a snapshot
-class OBJECT_OT_TakeSnapshot(bpy.types.Operator):
+class OBJECT_OT_TakeSnapshot(Operator):
     bl_idname = "object.take_snapshot"
     bl_label = "Take Snapshot"
     bl_description = "Take a snapshot of the current 3D view"
@@ -94,7 +95,7 @@ class OBJECT_OT_TakeSnapshot(bpy.types.Operator):
         return {'FINISHED'}
 
 # Define the operator for displaying the snapshot
-class OBJECT_OT_DisplaySnapshot(bpy.types.Operator):
+class OBJECT_OT_DisplaySnapshot(Operator):
     bl_idname = "object.display_snapshot_state"
     bl_label = "Display Snapshot"
     bl_description = "Display the saved snapshot over the 3D view"
@@ -145,7 +146,7 @@ class OBJECT_OT_DisplaySnapshot(bpy.types.Operator):
         return {'FINISHED'}
 
 # Define the operator for selecting a snapshot
-class OBJECT_OT_SelectSnapshot(bpy.types.Operator):
+class OBJECT_OT_SelectSnapshot(Operator):
     bl_idname = "object.select_snapshot"
     bl_label = "Select Snapshot"
     bl_description = "Select a snapshot to display"
@@ -187,7 +188,7 @@ class OBJECT_OT_SelectSnapshot(bpy.types.Operator):
         return {'FINISHED'}
 
 # Define the operator for opening the snapshots folder
-class OBJECT_OT_OpenSnapshotsFolder(bpy.types.Operator):
+class OBJECT_OT_OpenSnapshotsFolder(Operator):
     bl_idname = "object.open_snapshots_folder"
     bl_label = "Open Snapshots Folder"
     bl_description = "Open the folder where snapshots are stored"
@@ -198,7 +199,7 @@ class OBJECT_OT_OpenSnapshotsFolder(bpy.types.Operator):
         return {'FINISHED'}
 
 # Define the operator for clearing the snapshot list
-class OBJECT_OT_ClearSnapshotList(bpy.types.Operator):
+class OBJECT_OT_ClearSnapshotList(Operator):
     bl_idname = "object.clear_snapshot_list"
     bl_label = "Clear Snapshot List"
     bl_description = "Clear the snapshot list without deleting the files"
@@ -247,14 +248,15 @@ def update_snapshot_selection(self, context):
 
 ### 面板类函数 ###
 class VIEW3D_PT_SnapshotPanel(bpy.types.Panel):
-    bl_label = "Snapshot Panel"
+    bl_label = "Snapshot and STOOL Panel"
     bl_idname = "VIEW3D_PT_snapshot_panel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = 'Snapshot'
+    bl_category = 'Snapshot & STOOL'
     
     def draw(self, context):
         layout = self.layout
+        layout.label(text="Snapshot Operations:")
         layout.operator("object.take_snapshot", text="Take Snapshot")
         layout.operator("object.display_snapshot_state", text="Display Snapshot")
         layout.prop(context.scene, "snapshot_opacity", text="Snapshot Opacity")
@@ -263,7 +265,249 @@ class VIEW3D_PT_SnapshotPanel(bpy.types.Panel):
         col.template_list("UL_SnapshotList", "snapshot_list", context.scene, "snapshot_list", context.scene, "snapshot_list_index")
         layout.operator("object.open_snapshots_folder", text="Open Snapshots Folder")
         layout.operator("object.clear_snapshot_list", text="Clear Snapshot List")
+        
+        layout.separator()
+        layout.label(text="STOOL Operations:")
+        layout.operator("object.parent_to_empty_visn")
+        layout.operator("object.select_parent_visn")
+        layout.operator("object.release_all_children_to_world_visn")
+        layout.operator("object.release_all_children_to_subparent_visn")
+        layout.operator("object.solo_pick_visn")
+        layout.operator("object.pickup_new_parent_visn")
+        layout.operator("object.fast_camera_visn")
 
+### STOOL 插件的类和操作 ###
+def centro(sel):
+    x = sum(obj.location[0] for obj in sel) / len(sel)
+    y = sum(obj.location[1] for obj in sel) / len(sel)
+    z = sum(obj.location[2] for obj in sel) / len(sel)
+    return (x, y, z)
+
+def centro_global(sel):
+    x = sum(obj.matrix_world.translation[0] for obj in sel) / len(sel)
+    y = sum(obj.matrix_world.translation[1] for obj in sel) / len(sel)
+    z = sum(obj.matrix_world.translation[2] for obj in sel) / len(sel)
+    return (x, y, z)
+
+def get_children(my_object):
+    return [ob for ob in bpy.data.objects if ob.parent == my_object]
+
+class FastCentreCamera(Operator):
+    bl_idname = "object.fast_camera_visn"
+    bl_label = "快速中心摄像机"
+    bl_description = "创建一个以选择物体为目标点的，中心点+PSR锁定的的摄像机"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        # 获取创建点
+        objs = context.selected_objects
+        loc = centro_global(objs) if objs else (0, 0, 0)
+
+        # 创建摄像机
+        bpy.ops.object.camera_add(enter_editmode=False, align='VIEW', location=(0, 0, 0), rotation=(0, 0, 0), scale=(1, 1, 1))
+        bpy.context.active_object.name = 'NewCamera'
+        cams = context.selected_objects
+        bpy.context.space_data.camera = cams[0]
+        bpy.ops.view3d.camera_to_view()
+        bpy.ops.object.add(type='EMPTY', location=cams[0].location, rotation=cams[0].rotation_euler)
+        bpy.context.active_object.name = 'CameraProtection'
+        bpy.ops.object.constraint_add(type='DAMPED_TRACK')
+        camP = context.selected_objects
+        cams[0].select_set(True)
+        bpy.ops.object.parent_no_inverse_set(keep_transform=True)
+        cams[0].lock_location[:] = [True, True, True]
+        cams[0].lock_rotation[:] = [True, True, True]
+
+        # 创建原点的空物体
+        bpy.ops.object.add(type='EMPTY', location=loc)
+        bpy.context.active_object.name = 'CameraCentre'
+        camC = context.selected_objects
+        camP[0].select_set(True)
+        bpy.ops.object.parent_no_inverse_set(keep_transform=True)
+        camP[0].select_set(False)
+        cams[0].select_set(False)
+        camP[0].constraints["Damped Track"].target = bpy.data.objects[camC[0].name]
+        camP[0].constraints["Damped Track"].track_axis = 'TRACK_NEGATIVE_Z'
+
+        return {'FINISHED'}
+
+class SoloPick(Operator):
+    # 断开所选物体的所有父子级关系，捡出来放在世界层级，子级归更上一层父级管。
+    bl_idname = "object.solo_pick_visn"
+    bl_label = "拎出"
+    bl_description = "断开所有选择物体的父级"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        objs = context.selected_objects
+        try:
+            bpy.ops.object.mode_set()
+        except:
+            pass
+
+        for obj in objs:
+            obj.select_set(False)
+        for obj in objs:
+            if not obj.parent:
+                for children in get_children(obj):
+                    children.select_set(True)
+                    bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
+                    children.select_set(False)
+            else:
+                for children in get_children(obj):
+                    children.select_set(True)
+                    bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
+                    bpy.context.view_layer.objects.active = obj.parent
+                    bpy.ops.object.parent_no_inverse_set(keep_transform=True)
+                    children.select_set(False)
+        for obj in objs:
+            obj.select_set(True)
+            bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
+            obj.select_set(False)
+        for obj in objs:
+            obj.select_set(True)
+        return {'FINISHED'}
+
+class SelectParent(Operator):
+    bl_idname = "object.select_parent_visn"
+    bl_label = "选择所有父级"
+    bl_description = "选择被选中对象的所有父级"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        objs = context.selected_objects
+        try:
+            bpy.ops.object.mode_set()
+        except:
+            pass
+        for obj in objs:
+            obj.select_set(False)
+        for obj in objs:
+            if obj.parent:
+                obj.parent.select_set(True)
+        return {'FINISHED'}
+
+class PickupNewParent(Operator):
+    # 把选定对象，捡出来放在世界层级，保留子级关系
+    bl_idname = "object.pickup_new_parent_visn"
+    bl_label = "Pickup to New Parent"
+    bl_description = "Pickup selected objects to new parent"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        objs = context.selected_objects
+        try:
+            bpy.ops.object.mode_set()
+        except:
+            pass
+        for obj in objs:
+            obj.select_set(True)
+            bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
+            obj.select_set(False)
+
+        loc = centro(objs)
+        bpy.ops.object.add(type='EMPTY', location=loc)
+        for o in objs:
+            o.select_set(True)
+            if not o.parent:
+                bpy.ops.object.parent_no_inverse_set(keep_transform=True)
+            o.select_set(False)
+        return {'FINISHED'}
+
+class RAQ(Operator):
+    bl_idname = "object.release_all_children_to_world_visn"
+    bl_label = "释放子级对象（到世界）"
+    bl_description = "释放子级对象（到世界）"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        objs = context.selected_objects
+        try:
+            bpy.ops.object.mode_set()
+        except:
+            pass
+        for obj in objs:
+            obj.select_set(False)
+        for obj in objs:
+            for children in get_children(obj):
+                children.select_set(True)
+                bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
+                children.select_set(False)
+        return {'FINISHED'}
+
+class RAQtoSubparent(Operator):
+    bl_idname = "object.release_all_children_to_subparent_visn"
+    bl_label = "释放子级对象（到上级）"
+    bl_description = "释放子级对象（到上级）"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        objs = context.selected_objects
+        try:
+            bpy.ops.object.mode_set()
+        except:
+            pass
+        NOParent = False
+        for obj in objs:
+            obj.select_set(False)
+        for obj in objs:
+            if not obj.parent:
+                NOParent = True
+                for children in get_children(obj):
+                    children.select_set(True)
+                    bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
+                    children.select_set(False)
+            else:
+                for children in get_children(obj):
+                    children.select_set(True)
+                    bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
+                    bpy.context.view_layer.objects.active = obj.parent
+                    bpy.ops.object.parent_no_inverse_set(keep_transform=True)
+                    children.select_set(False)
+        if not NOParent:
+            for obj in objs:
+                bpy.context.view_layer.objects.active = obj.parent
+                obj.parent.select_set(True)
+        return {'FINISHED'}
+
+class P2E(Operator):
+    bl_idname = "object.parent_to_empty_visn"
+    bl_label = "所有物体到新父级"
+    bl_description = "所有物体到新父级"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        objs = context.selected_objects
+        try:
+            bpy.ops.object.mode_set()
+        except:
+            pass
+
+    def execute(self, context):
+        objs = context.selected_objects
+        try:
+            bpy.ops.object.mode_set()
+        except:
+            pass
+
+        loc = centro(objs)
+        same_parent = all(o.parent == objs[0].parent for o in objs)
+
+        if len(objs) == 1:
+            bpy.ops.object.add(type='EMPTY', location=loc, rotation=objs[0].rotation_euler)
+        else:
+            bpy.ops.object.add(type='EMPTY', location=loc)
+
+        if same_parent:
+            context.object.parent = objs[0].parent
+
+        for o in objs:
+            o.select_set(True)
+            bpy.ops.object.parent_no_inverse_set(keep_transform=True)
+            o.select_set(False)
+
+        return {'FINISHED'}
+            
 ### 注册类函数 ###
 allClass = [
     SnapshotItem, 
@@ -273,7 +517,14 @@ allClass = [
     OBJECT_OT_OpenSnapshotsFolder, 
     OBJECT_OT_ClearSnapshotList, 
     UL_SnapshotList, 
-    VIEW3D_PT_SnapshotPanel
+    VIEW3D_PT_SnapshotPanel,
+    FastCentreCamera,
+    SoloPick,
+    SelectParent,
+    PickupNewParent,
+    RAQ,
+    RAQtoSubparent,
+    P2E
 ]
 
 def register():
