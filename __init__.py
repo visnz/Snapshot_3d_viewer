@@ -276,7 +276,6 @@ class VIEW3D_PT_SnapshotPanel(bpy.types.Panel):
         layout.operator("object.release_all_children_to_world_visn")
         layout.operator("object.release_all_children_to_subparent_visn")
         layout.operator("object.solo_pick_visn")
-        layout.operator("object.ensure_only_visn")
         
         layout.separator()
         layout.label(text="搭建类操作")
@@ -575,53 +574,7 @@ class P2E(Operator):
             o.select_set(False)
 
         return {'FINISHED'}
-class EnsureOnly(Operator):        
-    bl_idname = "object.ensure_only_visn"
-    bl_label = "确保对象实体在同一个集合"
-    bl_description = "确保选定物体及其子级仅在当前集合中有单一链接（方便整理资产）"
-    bl_options = {"REGISTER", "UNDO"}
-    def execute(self, context):
-        selected_objs = context.selected_objects
-        if not selected_objs:
-            self.report({'WARNING'}, "没有选中的物体")
-            return {'CANCELLED'}
-
-        # 获取当前所选物体的集合
-        active_obj = context.view_layer.objects.active
-        if not active_obj:
-            self.report({'WARNING'}, "没有活跃的物体")
-            return {'CANCELLED'}
-
-        active_collections = active_obj.users_collection
-
-        for obj in selected_objs:
-            self.move_to_collection(obj, active_collections, context.scene.collection)
-        
-        self.report({'INFO'}, "选定物体及其子级已确保仅在当前集合中")
-        return {'FINISHED'}
-
-    def move_to_collection(self, obj, target_collections, scene_collection):
-        # 遍历对象的所有集合，包括 SceneCollection
-        for collection in bpy.data.collections:
-            if collection in target_collections:
-                continue
-            # 检查对象是否在集合中，如果在，则移除
-            if obj.name in collection.objects:
-                collection.objects.unlink(obj)
-
-        # 特殊处理 SceneCollection
-        if obj.name in scene_collection.objects:
-            scene_collection.objects.unlink(obj)
-
-        # 将对象添加到目标集合中
-        for collection in target_collections:
-            if obj.name not in collection.objects:
-                collection.objects.link(obj)
-
-        # 遍历子级对象，递归调用
-        for child in obj.children:
-            self.move_to_collection(child, target_collections, scene_collection)
-
+    
 class OpenProjectFolderOperator(bpy.types.Operator):
     # 打开当前工程所在的文件夹
     bl_idname = "wm.open_project_folder_visn"
@@ -718,7 +671,6 @@ allClass = [
     RAQ,
     RAQtoSubparent,
     P2E_Collection,
-    EnsureOnly,
     OpenProjectFolderOperator,
     AddLightWithConstraint,
     P2E
