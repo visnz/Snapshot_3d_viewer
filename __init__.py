@@ -10,6 +10,8 @@ bl_info = {
 
 import bpy
 import os
+import ctypes
+from ctypes import wintypes
 import gpu
 import subprocess
 import platform
@@ -17,6 +19,8 @@ from bpy.types import Operator
 from gpu.types import GPUShader
 from gpu_extras.batch import batch_for_shader
 import webbrowser
+from ctypes.wintypes import HWND, DWORD, LPCWSTR
+from ctypes import wintypes
 
 # Global variables to store the image, texture, and handler
 snapshot_image = None
@@ -654,7 +658,101 @@ class AddLightWithConstraint(bpy.types.Operator):
 
         self.report({'INFO'}, "灯光和约束已成功创建")
         return {'FINISHED'}
-    
+
+## =========== File Viewer改进 =================
+# 定义 Windows API 常量和类型
+user32 = ctypes.WinDLL('user32', use_last_error=True)
+kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+psapi = ctypes.WinDLL('psapi', use_last_error=True)
+shell32 = ctypes.WinDLL('shell32', use_last_error=True)
+
+# 定义常量
+PROCESS_QUERY_INFORMATION = 0x0400
+PROCESS_VM_READ = 0x0010
+MAX_PATH = 260
+
+# 定义函数类型
+EnumWindows = user32.EnumWindows
+EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
+GetWindowText = user32.GetWindowTextW
+GetWindowTextLength = user32.GetWindowTextLengthW
+IsWindowVisible = user32.IsWindowVisible
+GetWindowThreadProcessId = user32.GetWindowThreadProcessId
+OpenProcess = kernel32.OpenProcess
+CloseHandle = kernel32.CloseHandle
+GetModuleFileNameExW = psapi.GetModuleFileNameExW
+
+def get_explorer_windows():
+    windows = []
+    def callback(hwnd, lParam):
+        if IsWindowVisible(hwnd):
+            length = GetWindowTextLength(hwnd)
+            if length > 0:
+                buff = ctypes.create_unicode_buffer(length + 1)
+                GetWindowText(hwnd, buff, length + 1)
+                window_title = buff.value
+                pid = wintypes.DWORD()
+                GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                windows.append((hwnd, pid.value, window_title))
+        return True
+    EnumWindows(EnumWindowsProc(callback), 0)
+    return windows
+
+def get_explorer_path():
+    print("Getting explorer path")
+    windows = get_explorer_windows()
+    print(f"Found {len(windows)} windows")
+    for hwnd, pid, window_title in windows:
+        print(f"Checking window: {window_title}, PID: {pid}")
+        process = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, False, pid)
+        if not process:
+            print(f"Failed to open process for PID: {pid}")
+            continue
+        exe_name = (wintypes.WCHAR * MAX_PATH)()
+        if not GetModuleFileNameExW(process, None, exe_name, MAX_PATH):
+            print(f"Failed to get module filename for PID: {pid}")
+            CloseHandle(process)
+            continue
+        CloseHandle(process)
+        exe_name = exe_name.value.lower()
+        print(f"Executable name: {exe_name}")
+        if "explorer.exe" in exe_name:
+            # 获取当前文件夹路径
+            buf = ctypes.create_unicode_buffer(MAX_PATH)
+            print(f"buf: {buf}")
+            if user32.SendMessageTimeoutW(hwnd, 0x0046, 0, buf, 0, 1000, None):
+                print(f"buf: {buf.value}")
+                folder_path = buf.value
+                if os.path.isdir(folder_path):
+                    print(f"Explorer path found: {folder_path}")
+                    return folder_path
+                else:
+                    print(f"Invalid folder path: {folder_path}")
+            else:
+                print(f"Failed to send message to window: {window_title}")
+    print("No valid Explorer window found.")
+    return None
+
+class FILEBROWSER_OT_open_explorer_path(bpy.types.Operator):
+    """Open File Browser at Last Active Explorer Path"""
+    bl_idname = "file_browser.open_explorer_path"
+    bl_label = "Open Explorer Path"
+
+    def execute(self, context):
+        print("Executing FILEBROWSER_OT_open_explorer_path")
+        path = get_explorer_path()
+        if path:
+            context.space_data.params.directory = path.encode('utf-8')
+            self.report({'INFO'}, f"Opened path: {path}")
+        else:
+            self.report({'WARNING'}, "No valid Explorer window found.")
+        return {'FINISHED'}
+
+def file_browser_handler(dummy):
+    print("File browser handler called")
+    bpy.ops.file_browser.open_explorer_path()
+## =========== File Viewer改进 =================
+
 ### 注册类函数 ###
 allClass = [
     SnapshotItem, 
@@ -673,10 +771,13 @@ allClass = [
     P2E_Collection,
     OpenProjectFolderOperator,
     AddLightWithConstraint,
+    FILEBROWSER_OT_open_explorer_path,
     P2E
 ]
 
 def register():
+    global file_browser_handler_handle
+    
     for cls in allClass:
         bpy.utils.register_class(cls)
     bpy.types.Scene.snapshot_opacity = bpy.props.IntProperty(
@@ -686,15 +787,24 @@ def register():
         min=0,
         max=100
     )
+    print("Registering FILEBROWSER_OT_open_explorer_path")
+    file_browser_handler_handle = bpy.types.SpaceFileBrowser.draw_handler_add(file_browser_handler, (None,), 'WINDOW', 'POST_PIXEL')
     bpy.types.Scene.snapshot_list = bpy.props.CollectionProperty(type=SnapshotItem)
     bpy.types.Scene.snapshot_list_index = bpy.props.IntProperty(name="Index for snapshot_list", default=0, update=update_snapshot_selection)
 
 def unregister():
+    global file_browser_handler_handle
     del bpy.types.Scene.snapshot_opacity
     del bpy.types.Scene.snapshot_list
     del bpy.types.Scene.snapshot_list_index
     for cls in allClass:
         bpy.utils.unregister_class(cls)
+    print("Unregistering FILEBROWSER_OT_open_explorer_path")    
+    if file_browser_handler_handle is not None:
+        bpy.types.SpaceFileBrowser.draw_handler_remove(file_browser_handler_handle, 'WINDOW')
+        file_browser_handler_handle = None
+
+
 
 if __name__ == "__main__":
     register()
