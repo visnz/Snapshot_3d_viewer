@@ -281,6 +281,7 @@ class VIEW3D_PT_SnapshotPanel(bpy.types.Panel):
         layout.separator()
         layout.label(text="搭建类操作")
         layout.operator("object.fast_camera_visn")
+        layout.operator("object.add_light_with_constraint")
         layout.operator("wm.open_project_folder_visn")
 
 ### STOOL 插件的类和操作 ###
@@ -301,7 +302,7 @@ def get_children(my_object):
 
 class FastCentreCamera(Operator):
     bl_idname = "object.fast_camera_visn"
-    bl_label = "快速中心摄像机"
+    bl_label = "中心约束摄像机"
     bl_description = "创建一个以选择物体为目标点的，中心点+PSR锁定的的摄像机"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -594,17 +595,23 @@ class EnsureOnly(Operator):
         active_collections = active_obj.users_collection
 
         for obj in selected_objs:
-            self.move_to_collection(obj, active_collections)
+            self.move_to_collection(obj, active_collections, context.scene.collection)
+        
+        self.report({'INFO'}, "选定物体及其子级已确保仅在当前集合中")
         return {'FINISHED'}
 
-    def move_to_collection(self, obj, target_collections):
-        # 遍历对象的所有集合
+    def move_to_collection(self, obj, target_collections, scene_collection):
+        # 遍历对象的所有集合，包括 SceneCollection
         for collection in bpy.data.collections:
             if collection in target_collections:
                 continue
             # 检查对象是否在集合中，如果在，则移除
             if obj.name in collection.objects:
                 collection.objects.unlink(obj)
+
+        # 特殊处理 SceneCollection
+        if obj.name in scene_collection.objects:
+            scene_collection.objects.unlink(obj)
 
         # 将对象添加到目标集合中
         for collection in target_collections:
@@ -613,7 +620,8 @@ class EnsureOnly(Operator):
 
         # 遍历子级对象，递归调用
         for child in obj.children:
-            self.move_to_collection(child, target_collections)
+            self.move_to_collection(child, target_collections, scene_collection)
+
 class OpenProjectFolderOperator(bpy.types.Operator):
     # 打开当前工程所在的文件夹
     bl_idname = "wm.open_project_folder_visn"
@@ -636,6 +644,64 @@ class OpenProjectFolderOperator(bpy.types.Operator):
             subprocess.Popen(['xdg-open', project_folder])
 
         return {'FINISHED'}
+    
+class AddLightWithConstraint(bpy.types.Operator):
+    bl_idname = "object.add_light_with_constraint"
+    bl_label = "中心约束灯光"
+    bl_description = "在所选物体的位置创建一个空对象，并在其子级创建一个灯光，设置 Damped Track 约束"
+    bl_options = {"REGISTER", "UNDO"}
+    
+    def execute(self, context):
+        objs = context.selected_objects
+
+        if not objs:
+            self.report({'WARNING'}, "没有选中的物体")
+            return {'CANCELLED'}
+
+        try:
+            bpy.ops.object.mode_set(mode='OBJECT')
+        except Exception as e:
+            self.report({'WARNING'}, f"无法切换模式: {e}")
+            pass
+
+        # 计算选中对象的中心位置
+        loc = centro_global(objs)
+
+        # 保存当前活跃集合
+        original_active_collection = context.view_layer.active_layer_collection
+
+        # 设置 Scene Collection 为活跃集合
+        scene_collection = context.view_layer.layer_collection
+        context.view_layer.active_layer_collection = scene_collection
+
+        # 创建一个新的空对象
+        bpy.ops.object.add(type='EMPTY', location=loc)
+        empty_obj = context.object  # 获取新创建的空物体
+        empty_obj.name = "约束灯光组"  # 设置名称
+
+        # 在空对象的子级创建一个Spot灯光对象
+        bpy.ops.object.light_add(type='SPOT', location=loc)
+        light_obj = context.object  # 获取新创建的灯光对象
+        light_obj.parent = empty_obj  # 设置灯光对象的父级为空对象
+        light_obj.name = "约束灯光"  # 设置灯光名称
+        light_obj.location = (0, 0, 0)  # 将灯光对象位置归零
+
+        # 添加 Damped Track 约束到灯光对象
+        constraint = light_obj.constraints.new(type='DAMPED_TRACK')
+        constraint.target = empty_obj
+        constraint.track_axis = 'TRACK_NEGATIVE_Z'
+
+        # 恢复原来的活跃集合
+        context.view_layer.active_layer_collection = original_active_collection
+
+        # 设置新创建的灯光对象为活跃对象并选中
+        bpy.context.view_layer.objects.active = light_obj
+        bpy.ops.object.select_all(action='DESELECT')
+        light_obj.select_set(True)
+
+        self.report({'INFO'}, "灯光和约束已成功创建")
+        return {'FINISHED'}
+    
 ### 注册类函数 ###
 allClass = [
     SnapshotItem, 
@@ -654,6 +720,7 @@ allClass = [
     P2E_Collection,
     EnsureOnly,
     OpenProjectFolderOperator,
+    AddLightWithConstraint,
     P2E
 ]
 
