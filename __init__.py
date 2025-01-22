@@ -11,6 +11,8 @@ bl_info = {
 import bpy
 import os
 import gpu
+import subprocess
+import platform
 from bpy.types import Operator
 from gpu.types import GPUShader
 from gpu_extras.batch import batch_for_shader
@@ -64,8 +66,8 @@ shader = GPUShader(vertex_shader, fragment_shader)
 
 # Define a property group to hold the file path
 class SnapshotItem(bpy.types.PropertyGroup):
-    name: bpy.props.StringProperty()
-    filepath: bpy.props.StringProperty()
+    name: bpy.props.StringProperty() # type: ignore
+    filepath: bpy.props.StringProperty() # type: ignore
 
 # Define the operator for taking a snapshot
 class OBJECT_OT_TakeSnapshot(Operator):
@@ -256,7 +258,7 @@ class VIEW3D_PT_SnapshotPanel(bpy.types.Panel):
     
     def draw(self, context):
         layout = self.layout
-        layout.label(text="Snapshot Operations:")
+        layout.label(text="渲染快照")
         layout.operator("object.take_snapshot", text="Take Snapshot")
         layout.operator("object.display_snapshot_state", text="Display Snapshot")
         layout.prop(context.scene, "snapshot_opacity", text="Snapshot Opacity")
@@ -267,14 +269,19 @@ class VIEW3D_PT_SnapshotPanel(bpy.types.Panel):
         layout.operator("object.clear_snapshot_list", text="Clear Snapshot List")
         
         layout.separator()
-        layout.label(text="STOOL Operations:")
+        layout.label(text="父子级操作")
         layout.operator("object.parent_to_empty_visn")
         layout.operator("object.parent_to_empty_collection_visn")
         layout.operator("object.select_parent_visn")
         layout.operator("object.release_all_children_to_world_visn")
         layout.operator("object.release_all_children_to_subparent_visn")
         layout.operator("object.solo_pick_visn")
+        layout.operator("object.ensure_only_visn")
+        
+        layout.separator()
+        layout.label(text="搭建类操作")
         layout.operator("object.fast_camera_visn")
+        layout.operator("wm.open_project_folder_visn")
 
 ### STOOL 插件的类和操作 ###
 def centro(sel):
@@ -543,12 +550,14 @@ class P2E(Operator):
             last_active_collections = last_active_obj.users_collection
 
             # 将新创建的空物体添加到活跃对象的集合中
-            for collection in last_active_collections:
-                collection.objects.link(new_empty)
+            try:
+                for collection in last_active_collections:
+                    collection.objects.link(new_empty)
 
-            # 从当前活跃集合中移除新创建的空物体
-            context.collection.objects.unlink(new_empty)
-            
+                # 从当前活跃集合中移除新创建的空物体
+                context.collection.objects.unlink(new_empty)
+            except:
+                pass
             # 将子级对象从原来的集合中移除，并添加到新的集合中
             for o in objs:
                 for collection in o.users_collection:
@@ -565,7 +574,68 @@ class P2E(Operator):
             o.select_set(False)
 
         return {'FINISHED'}
-                
+class EnsureOnly(Operator):        
+    bl_idname = "object.ensure_only_visn"
+    bl_label = "确保对象实体在同一个集合"
+    bl_description = "确保选定物体及其子级仅在当前集合中有单一链接（方便整理资产）"
+    bl_options = {"REGISTER", "UNDO"}
+    def execute(self, context):
+        selected_objs = context.selected_objects
+        if not selected_objs:
+            self.report({'WARNING'}, "没有选中的物体")
+            return {'CANCELLED'}
+
+        # 获取当前所选物体的集合
+        active_obj = context.view_layer.objects.active
+        if not active_obj:
+            self.report({'WARNING'}, "没有活跃的物体")
+            return {'CANCELLED'}
+
+        active_collections = active_obj.users_collection
+
+        for obj in selected_objs:
+            self.move_to_collection(obj, active_collections)
+        return {'FINISHED'}
+
+    def move_to_collection(self, obj, target_collections):
+        # 遍历对象的所有集合
+        for collection in bpy.data.collections:
+            if collection in target_collections:
+                continue
+            # 检查对象是否在集合中，如果在，则移除
+            if obj.name in collection.objects:
+                collection.objects.unlink(obj)
+
+        # 将对象添加到目标集合中
+        for collection in target_collections:
+            if obj.name not in collection.objects:
+                collection.objects.link(obj)
+
+        # 遍历子级对象，递归调用
+        for child in obj.children:
+            self.move_to_collection(child, target_collections)
+class OpenProjectFolderOperator(bpy.types.Operator):
+    # 打开当前工程所在的文件夹
+    bl_idname = "wm.open_project_folder_visn"
+    bl_label = "打开工程文件夹"
+    bl_options = {'REGISTER'}
+
+    def execute(self, context):
+        blend_filepath = bpy.data.filepath
+        if not blend_filepath:
+            self.report({'ERROR'}, "当前没有打开的工程文件")
+            return {'CANCELLED'}
+
+        project_folder = os.path.dirname(blend_filepath)
+
+        if platform.system() == 'Windows':
+            subprocess.Popen(['explorer', project_folder])
+        elif platform.system() == 'Darwin':  # macOS
+            subprocess.Popen(['open', project_folder])
+        else:  # Linux and other OS
+            subprocess.Popen(['xdg-open', project_folder])
+
+        return {'FINISHED'}
 ### 注册类函数 ###
 allClass = [
     SnapshotItem, 
@@ -579,10 +649,11 @@ allClass = [
     FastCentreCamera,
     SoloPick,
     SelectParent,
-    PickupNewParent,
     RAQ,
     RAQtoSubparent,
     P2E_Collection,
+    EnsureOnly,
+    OpenProjectFolderOperator,
     P2E
 ]
 
