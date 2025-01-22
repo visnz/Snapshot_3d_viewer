@@ -269,11 +269,11 @@ class VIEW3D_PT_SnapshotPanel(bpy.types.Panel):
         layout.separator()
         layout.label(text="STOOL Operations:")
         layout.operator("object.parent_to_empty_visn")
+        layout.operator("object.parent_to_empty_collection_visn")
         layout.operator("object.select_parent_visn")
         layout.operator("object.release_all_children_to_world_visn")
         layout.operator("object.release_all_children_to_subparent_visn")
         layout.operator("object.solo_pick_visn")
-        layout.operator("object.pickup_new_parent_visn")
         layout.operator("object.fast_camera_visn")
 
 ### STOOL 插件的类和操作 ###
@@ -334,8 +334,8 @@ class FastCentreCamera(Operator):
 class SoloPick(Operator):
     # 断开所选物体的所有父子级关系，捡出来放在世界层级，子级归更上一层父级管。
     bl_idname = "object.solo_pick_visn"
-    bl_label = "拎出"
-    bl_description = "断开所有选择物体的父级"
+    bl_label = "断开所有父子级"
+    bl_description = "断开所有选择物体的父子级"
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
@@ -385,33 +385,6 @@ class SelectParent(Operator):
         for obj in objs:
             if obj.parent:
                 obj.parent.select_set(True)
-        return {'FINISHED'}
-
-class PickupNewParent(Operator):
-    # 把选定对象，捡出来放在世界层级，保留子级关系
-    bl_idname = "object.pickup_new_parent_visn"
-    bl_label = "Pickup to New Parent"
-    bl_description = "Pickup selected objects to new parent"
-    bl_options = {"REGISTER", "UNDO"}
-
-    def execute(self, context):
-        objs = context.selected_objects
-        try:
-            bpy.ops.object.mode_set()
-        except:
-            pass
-        for obj in objs:
-            obj.select_set(True)
-            bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
-            obj.select_set(False)
-
-        loc = centro(objs)
-        bpy.ops.object.add(type='EMPTY', location=loc)
-        for o in objs:
-            o.select_set(True)
-            if not o.parent:
-                bpy.ops.object.parent_no_inverse_set(keep_transform=True)
-            o.select_set(False)
         return {'FINISHED'}
 
 class RAQ(Operator):
@@ -470,21 +443,86 @@ class RAQtoSubparent(Operator):
                 obj.parent.select_set(True)
         return {'FINISHED'}
 
+class P2E_Collection(Operator):
+    bl_idname = "object.parent_to_empty_collection_visn"
+    bl_label = "所选物体 到新集合"
+    bl_description = "所有选择的物体到新父级，并送入新集合"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        def move_to_collection(obj, collection):
+            # 递归地将对象及其所有子对象移动到指定集合中
+            # 首先将对象从其所有集合中移除
+            for coll in obj.users_collection:
+                coll.objects.unlink(obj)
+            # 将对象添加到新集合中
+            collection.objects.link(obj)
+            # 递归地处理子对象
+            for child in obj.children:
+                move_to_collection(child, collection)
+
+        objs = context.selected_objects
+        try:
+            bpy.ops.object.mode_set(mode='OBJECT')
+        except:
+            pass
+
+        # 获取所有选中对象的中心位置
+        loc = centro(objs)
+        same_parent = all(o.parent == objs[0].parent for o in objs)
+
+        # 创建一个新的集合
+        new_collection = bpy.data.collections.new(name="New Collection")
+        context.scene.collection.children.link(new_collection)
+
+        # 将新集合设置为活跃集合
+        layer_collection = context.view_layer.layer_collection
+        for layer in layer_collection.children:
+            if layer.collection == new_collection:
+                context.view_layer.active_layer_collection = layer
+
+        # 创建一个新的空对象并设置位置
+        bpy.ops.object.select_all(action='DESELECT')
+        if len(objs) == 1:
+            bpy.ops.object.add(type='EMPTY', location=loc, rotation=objs[0].rotation_euler)
+        else:
+            bpy.ops.object.add(type='EMPTY', location=loc)
+
+        new_empty = context.object
+
+        # 如果所有选中对象有相同的父级，则将新空对象设置为该父级的子级
+        if same_parent:
+            new_empty.parent = objs[0].parent
+
+        # 将新空对象添加到新集合中
+        try:
+            new_collection.objects.link(new_empty)
+        except:
+            pass
+
+        # 确保新空对象在当前视图层中
+        context.view_layer.objects.active = new_empty
+
+        # 遍历所有选中对象并递归地将它们及其子对象移动到新集合中
+        for o in objs:
+            move_to_collection(o, new_collection)
+            # 设置父级
+            o.select_set(True)
+            bpy.ops.object.parent_no_inverse_set(keep_transform=True)
+            o.select_set(False)
+
+        return {'FINISHED'}
+
 class P2E(Operator):
     bl_idname = "object.parent_to_empty_visn"
-    bl_label = "所有物体到新父级"
-    bl_description = "所有物体到新父级"
+    bl_label = "所选物体 到父级"
+    bl_description = "所有所选物体到父级"
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
         objs = context.selected_objects
-        try:
-            bpy.ops.object.mode_set()
-        except:
-            pass
+        last_active_obj = context.view_layer.objects.active  # 获取最后一次选中的活跃对象
 
-    def execute(self, context):
-        objs = context.selected_objects
         try:
             bpy.ops.object.mode_set()
         except:
@@ -497,9 +535,29 @@ class P2E(Operator):
             bpy.ops.object.add(type='EMPTY', location=loc, rotation=objs[0].rotation_euler)
         else:
             bpy.ops.object.add(type='EMPTY', location=loc)
+        
+        new_empty = context.object  # 获取新创建的空物体
+        
+        # 获取最后一次选中的活跃对象的集合
+        if last_active_obj is not None:
+            last_active_collections = last_active_obj.users_collection
+
+            # 将新创建的空物体添加到活跃对象的集合中
+            for collection in last_active_collections:
+                collection.objects.link(new_empty)
+
+            # 从当前活跃集合中移除新创建的空物体
+            context.collection.objects.unlink(new_empty)
+            
+            # 将子级对象从原来的集合中移除，并添加到新的集合中
+            for o in objs:
+                for collection in o.users_collection:
+                    collection.objects.unlink(o)
+                for collection in last_active_collections:
+                    collection.objects.link(o)
 
         if same_parent:
-            context.object.parent = objs[0].parent
+            new_empty.parent = objs[0].parent
 
         for o in objs:
             o.select_set(True)
@@ -507,7 +565,7 @@ class P2E(Operator):
             o.select_set(False)
 
         return {'FINISHED'}
-            
+                
 ### 注册类函数 ###
 allClass = [
     SnapshotItem, 
@@ -524,6 +582,7 @@ allClass = [
     PickupNewParent,
     RAQ,
     RAQtoSubparent,
+    P2E_Collection,
     P2E
 ]
 
