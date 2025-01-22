@@ -17,7 +17,7 @@ from bpy.types import Operator
 from gpu.types import GPUShader
 from gpu_extras.batch import batch_for_shader
 import webbrowser
-
+import json
 # Global variables to store the image, texture, and handler
 snapshot_image = None
 snapshot_texture = None
@@ -282,6 +282,8 @@ class VIEW3D_PT_SnapshotPanel(bpy.types.Panel):
         layout.operator("object.fast_camera_visn")
         layout.operator("object.add_light_with_constraint")
         layout.operator("wm.open_project_folder_visn")
+        layout.operator(SaveSelection.bl_idname, text="保存当前选择")
+        layout.operator(LoadSelection.bl_idname, text="还原选择状态")
 
 ### STOOL 插件的类和操作 ###
 def centro(sel):
@@ -341,7 +343,7 @@ class FastCentreCamera(Operator):
 class SoloPick(Operator):
     # 断开所选物体的所有父子级关系，捡出来放在世界层级，子级归更上一层父级管。
     bl_idname = "object.solo_pick_visn"
-    bl_label = "断开所有父子级"
+    bl_label = "拎出（断开父子级）"
     bl_description = "断开所有选择物体的父子级"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -396,8 +398,8 @@ class SelectParent(Operator):
 
 class RAQ(Operator):
     bl_idname = "object.release_all_children_to_world_visn"
-    bl_label = "释放子级对象（到世界）"
-    bl_description = "释放子级对象（到世界）"
+    bl_label = "释放子对象（到世界）"
+    bl_description = "释放子对象（到世界）"
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
@@ -417,8 +419,8 @@ class RAQ(Operator):
 
 class RAQtoSubparent(Operator):
     bl_idname = "object.release_all_children_to_subparent_visn"
-    bl_label = "释放子级对象（到上级）"
-    bl_description = "释放子级对象（到上级）"
+    bl_label = "释放子对象（到上级）"
+    bl_description = "释放子对象（到上级）"
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
@@ -558,7 +560,7 @@ class P2E(Operator):
                 context.collection.objects.unlink(new_empty)
             except:
                 pass
-            # 将子级对象从原来的集合中移除，并添加到新的集合中
+            # 将子对象从原来的集合中移除，并添加到新的集合中
             for o in objs:
                 for collection in o.users_collection:
                     collection.objects.unlink(o)
@@ -654,7 +656,88 @@ class AddLightWithConstraint(bpy.types.Operator):
 
         self.report({'INFO'}, "灯光和约束已成功创建")
         return {'FINISHED'}
+
+##### ======= 选择组的效果 =====================
+class SaveSelection(bpy.types.Operator):
+    bl_idname = "object.save_selection"
+    bl_label = "保存当前选择"
+    bl_description = "将当前选择的对象及其数据保存为一个文本序列，并在SceneCollection下创建一个空对象叫做“选择组”"
+    bl_options = {"REGISTER", "UNDO"}
     
+    def execute(self, context):
+        selected_objs = context.selected_objects
+        selection_data = []
+
+        # 收集当前选择的对象及其数据
+        for obj in selected_objs:
+            obj_data = {
+                'name': obj.name,
+                'type': obj.type,
+                'data': obj.data.name if obj.data else None
+            }
+            selection_data.append(obj_data)
+        
+        # 生成选择组的名称
+        group_name_parts = [obj.name if len(obj.name) <= 8 else obj.name[:8] + "..." for obj in selected_objs]
+        group_name = "选择组_" + ",".join(group_name_parts)
+
+        # 将选择的数据保存为JSON字符串
+        selection_json = json.dumps(selection_data, indent=4)
+        
+        # 在SceneCollection下创建一个空对象叫做“选择组”
+        scene_collection = context.scene.collection
+        index = 1
+        base_name = group_name
+        while bpy.data.objects.get(f"{base_name}_{index}"):
+            index += 1
+        selection_group = bpy.data.objects.new(f"{base_name}_{index}", None)
+        scene_collection.objects.link(selection_group)
+        
+        # 创建一个新的text block来存储选择数据
+        text_block_name = f"选择组数据_{index}"
+        text_block = bpy.data.texts.new(name=text_block_name)
+        text_block.write(selection_json)
+        
+        # 将text block链接到选择组对象的自定义属性
+        selection_group["selection_data"] = text_block.name
+
+        self.report({'INFO'}, "当前选择已保存")
+        return {'FINISHED'}
+
+class LoadSelection(bpy.types.Operator):
+    bl_idname = "object.load_selection"
+    bl_label = "还原选择状态"
+    bl_description = "通过选择“选择组”对象，点击此按钮还原之前保存的选择状态"
+    bl_options = {"REGISTER", "UNDO"}
+    
+    def execute(self, context):
+        active_obj = context.view_layer.objects.active
+        if not active_obj or not active_obj.name.startswith("选择组_"):
+            self.report({'WARNING'}, "请先选择一个“选择组”对象")
+            return {'CANCELLED'}
+        
+        # 获取选择组对象的自定义属性中的text block名称
+        text_block_name = active_obj.get("selection_data")
+        if not text_block_name or text_block_name not in bpy.data.texts:
+            self.report({'WARNING'}, "未找到选择数据")
+            return {'CANCELLED'}
+        
+        # 获取选择数据JSON字符串
+        selection_json = bpy.data.texts[text_block_name].as_string()
+        selection_data = json.loads(selection_json)
+        
+        # 还原选择状态
+        bpy.ops.object.select_all(action='DESELECT')
+        for obj_data in selection_data:
+            obj = bpy.data.objects.get(obj_data['name'])
+            if obj:
+                obj.select_set(True)
+                context.view_layer.objects.active = obj
+        
+        self.report({'INFO'}, "选择状态已还原")
+        return {'FINISHED'}
+##### ======= 选择组的效果 =====================
+
 ### 注册类函数 ###
 allClass = [
     SnapshotItem, 
@@ -673,6 +756,8 @@ allClass = [
     P2E_Collection,
     OpenProjectFolderOperator,
     AddLightWithConstraint,
+    SaveSelection,
+    LoadSelection,
     P2E
 ]
 
