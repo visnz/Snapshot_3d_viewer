@@ -59,7 +59,9 @@ fragment_shader = '''
     void main()
     {
         vec4 color = texture(image, texCoord_interp);
-        fragColor = vec4(color.rgb, color.a * opacity);
+        color.rgb /= color.a;
+        color.rgb = (color.rgb - 0.5) * 1.008 + 0.5;  // 使用固定的对比度值
+        fragColor = vec4(color.r * 1.004, color.g * 1.004, color.b * 1.004, color.a * opacity);  // 使用固定的亮度值
     }
 '''
 
