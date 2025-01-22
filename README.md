@@ -1,2 +1,9 @@
-# Snapshot_3d_viewer
-A snapshot and comparison addons for blender 3d viewer
+# 小桶工具箱 Snapshot and STOOL
+> 本脚本由Github Copilot开发，小桶同学引导设计。
+
+一个渲染快照+个人常用工具混合的工具箱
+
+## 主要功能介绍
+### 渲染快照
+### 父子级操作
+### 搭建类操作

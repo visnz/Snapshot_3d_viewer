@@ -18,6 +18,8 @@ from gpu.types import GPUShader
 from gpu_extras.batch import batch_for_shader
 import webbrowser
 import json
+
+## =============== Snapshot ===============
 # Global variables to store the image, texture, and handler
 snapshot_image = None
 snapshot_texture = None
@@ -72,7 +74,7 @@ class SnapshotItem(bpy.types.PropertyGroup):
 # Define the operator for taking a snapshot
 class OBJECT_OT_TakeSnapshot(Operator):
     bl_idname = "object.take_snapshot"
-    bl_label = "Take Snapshot"
+    bl_label = "拍摄"
     bl_description = "Take a snapshot of the current 3D view"
     
     def execute(self, context):
@@ -99,8 +101,8 @@ class OBJECT_OT_TakeSnapshot(Operator):
 # Define the operator for displaying the snapshot
 class OBJECT_OT_DisplaySnapshot(Operator):
     bl_idname = "object.display_snapshot_state"
-    bl_label = "Display Snapshot"
-    bl_description = "Display the saved snapshot over the 3D view"
+    bl_label = "快照开关"
+    bl_description = "展示已保存的快照"
     
     def execute(self, context):
         global snapshot_texture, snapshot_image, display_snapshot_state, draw_handler
@@ -192,8 +194,8 @@ class OBJECT_OT_SelectSnapshot(Operator):
 # Define the operator for opening the snapshots folder
 class OBJECT_OT_OpenSnapshotsFolder(Operator):
     bl_idname = "object.open_snapshots_folder"
-    bl_label = "Open Snapshots Folder"
-    bl_description = "Open the folder where snapshots are stored"
+    bl_label = "打开快照文件夹"
+    bl_description = "打开快照文件夹"
 
     def execute(self, context):
         webbrowser.open(snapshot_dir)
@@ -203,8 +205,8 @@ class OBJECT_OT_OpenSnapshotsFolder(Operator):
 # Define the operator for clearing the snapshot list
 class OBJECT_OT_ClearSnapshotList(Operator):
     bl_idname = "object.clear_snapshot_list"
-    bl_label = "Clear Snapshot List"
-    bl_description = "Clear the snapshot list without deleting the files"
+    bl_label = "清除快照列表"
+    bl_description = "清除快照列表（不会清除文件，从头开始覆盖）"
 
     def execute(self, context):
         context.scene.snapshot_list.clear()
@@ -259,14 +261,14 @@ class VIEW3D_PT_SnapshotPanel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         layout.label(text="渲染快照")
-        layout.operator("object.take_snapshot", text="Take Snapshot")
-        layout.operator("object.display_snapshot_state", text="Display Snapshot")
-        layout.prop(context.scene, "snapshot_opacity", text="Snapshot Opacity")
-        layout.label(text="Snapshot List:")
+        layout.operator("object.take_snapshot")
+        layout.operator("object.display_snapshot_state")
+        layout.prop(context.scene, "snapshot_opacity")
+        layout.label(text="快照列表")
         col = layout.column()
         col.template_list("UL_SnapshotList", "snapshot_list", context.scene, "snapshot_list", context.scene, "snapshot_list_index")
-        layout.operator("object.open_snapshots_folder", text="Open Snapshots Folder")
-        layout.operator("object.clear_snapshot_list", text="Clear Snapshot List")
+        layout.operator("object.open_snapshots_folder")
+        layout.operator("object.clear_snapshot_list")
         
         layout.separator()
         layout.label(text="父子级操作")
@@ -282,8 +284,8 @@ class VIEW3D_PT_SnapshotPanel(bpy.types.Panel):
         layout.operator("object.fast_camera_visn")
         layout.operator("object.add_light_with_constraint")
         layout.operator("wm.open_project_folder_visn")
-        layout.operator(SaveSelection.bl_idname, text="保存当前选择")
-        layout.operator(LoadSelection.bl_idname, text="还原选择状态")
+        layout.operator("object.save_selection_visn")
+        layout.operator("object.load_selection_visn")
 
 ### STOOL 插件的类和操作 ###
 def centro(sel):
@@ -659,9 +661,9 @@ class AddLightWithConstraint(bpy.types.Operator):
 
 ##### ======= 选择组的效果 =====================
 class SaveSelection(bpy.types.Operator):
-    bl_idname = "object.save_selection"
-    bl_label = "保存当前选择"
-    bl_description = "将当前选择的对象及其数据保存为一个文本序列，并在SceneCollection下创建一个空对象叫做“选择组”"
+    bl_idname = "object.save_selection_visn"
+    bl_label = "保存【选择组】"
+    bl_description = "将当前选择的对象保存为序列，创建一个空对象：选择组"
     bl_options = {"REGISTER", "UNDO"}
     
     def execute(self, context):
@@ -705,9 +707,9 @@ class SaveSelection(bpy.types.Operator):
         return {'FINISHED'}
 
 class LoadSelection(bpy.types.Operator):
-    bl_idname = "object.load_selection"
-    bl_label = "还原选择状态"
-    bl_description = "通过选择“选择组”对象，点击此按钮还原之前保存的选择状态"
+    bl_idname = "object.load_selection_visn"
+    bl_label = "读取【选择组】"
+    bl_description = "通过选择“选择组”对象，还原之前保存的选择状态"
     bl_options = {"REGISTER", "UNDO"}
     
     def execute(self, context):
@@ -765,8 +767,8 @@ def register():
     for cls in allClass:
         bpy.utils.register_class(cls)
     bpy.types.Scene.snapshot_opacity = bpy.props.IntProperty(
-        name="Snapshot Opacity",
-        description="Opacity of the snapshot overlay",
+        name="快照不透明度",
+        description="快照覆盖在画面的不透明度",
         default=100,
         min=0,
         max=100
