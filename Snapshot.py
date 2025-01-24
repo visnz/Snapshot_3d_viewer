@@ -76,7 +76,8 @@ def render_snapshot(filepath, time_limit):
 class OBJECT_OT_TakeSnapshot(bpy.types.Operator):
     bl_idname = "object.take_snapshot"
     bl_label = "拍摄"
-    bl_description = "Take a snapshot of the current 3D view"
+    bl_description = "拍摄3D viewer区域部分快照"
+    
     def execute(self, context):
         global snapshot_texture, snapshot_image, display_snapshot_state
         area_id = str(hash(context.area.as_pointer()) % 10000).zfill(4)
@@ -120,8 +121,8 @@ class OBJECT_OT_TakeSnapshot(bpy.types.Operator):
 
 class OBJECT_OT_ToggleSnapshotDisplay(bpy.types.Operator):
     bl_idname = "object.toggle_snapshot_display"
-    bl_label = "Toggle Snapshot Display"
-    bl_description = "Toggle the display of the snapshot in the current 3D view"
+    bl_label = "快照开关"
+    bl_description = "控制是否显示快照，眼睛图形睁开为启用"
     def execute(self, context):
         global snapshot_texture, snapshot_image, draw_handler, display_snapshot_state, visibility_state
         area_id = str(hash(context.area.as_pointer()) % 10000).zfill(4)
@@ -155,8 +156,9 @@ class OBJECT_OT_ToggleSnapshotDisplay(bpy.types.Operator):
 
 class OBJECT_OT_SelectSnapshot(bpy.types.Operator):
     bl_idname = "object.select_snapshot"
-    bl_label = "Select Snapshot"
-    bl_description = "Select a snapshot to display"
+    bl_label = "选择快照"
+    bl_description = "选择用于展示的快照"
+
     def execute(self, context):
         global snapshot_texture, snapshot_image, draw_handler, display_snapshot_state, visibility_state
         selected_index = context.scene.snapshot_list_index
@@ -266,7 +268,7 @@ def update_snapshot_selection(self, context):
     bpy.ops.object.select_snapshot()
 
 class VIEW3D_PT_SnapshotPanel(bpy.types.Panel):
-    bl_label = "Snapshot"
+    bl_label = "快照"
     bl_idname = "VIEW3D_PT_snapshot_panel_Snapshot"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
@@ -287,7 +289,7 @@ class VIEW3D_PT_SnapshotPanel(bpy.types.Panel):
         layout.prop(context.scene, "snapshot_opacity")
         layout.operator("object.open_snapshots_folder")
         layout.operator("object.clear_snapshot_list")
-        layout.operator("object.drag_slider", text="拖动滑动杆")
+        layout.operator("object.drag_slider")
 
 class OBJECT_OT_DragSlider(bpy.types.Operator):
     bl_idname = "object.drag_slider"
@@ -312,12 +314,24 @@ allClass = [SnapshotItem, OBJECT_OT_TakeSnapshot, OBJECT_OT_ToggleSnapshotDispla
 def register():
     for cls in allClass:
         bpy.utils.register_class(cls)
-    bpy.types.Scene.snapshot_opacity = bpy.props.IntProperty(name="快照不透明度", description="快照覆盖在画面的不透明度", default=100, min=0, max=100)
+    bpy.types.Scene.snapshot_opacity = bpy.props.IntProperty(
+        name="不透明度",
+        description="快照覆盖在画面的不透明度",
+        default=100,
+        min=0,
+        max=100
+    )
     bpy.types.Scene.snapshot_list = bpy.props.CollectionProperty(type=SnapshotItem)
     bpy.types.Scene.snapshot_list_index = bpy.props.IntProperty(name="Index for snapshot_list", default=0, update=update_snapshot_selection)
     bpy.types.Scene.use_full_render = bpy.props.BoolProperty(name="EEVEE/Cycles模式下完全渲染", description="是否在EEVEE/Cycles模式下进行完全渲染", default=False)
     bpy.types.Scene.render_time_limit = bpy.props.IntProperty(name="渲染时间限制（秒）", description="渲染时间限制（秒）", default=2, min=1, max=100)
-    bpy.types.Scene.slider_position = bpy.props.FloatProperty(name="滑动杆位置", description="滑动杆在3D Viewer中的位置", default=0.5, min=0.0, max=1.0)
+    bpy.types.Scene.slider_position = bpy.props.FloatProperty(
+        name="滑动杆位置",
+        description="滑动杆在3D Viewer中的位置",
+        default=0.5,
+        min=0.0,
+        max=1.0
+    )
 
 def unregister():
     del bpy.types.Scene.snapshot_opacity

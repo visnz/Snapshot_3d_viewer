@@ -23,7 +23,7 @@ class MyAddonPreferences(bpy.types.AddonPreferences):
 
     enable_stool: bpy.props.BoolProperty(
         name="启用小工具箱",
-        description="Enable or disable the STOOL part of the addon",
+        description="启用小工具箱（父子级操作、搭建类操作）",
         default=False,
         update=update_stool_enable
     ) # type: ignore
