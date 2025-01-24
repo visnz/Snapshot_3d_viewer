@@ -18,8 +18,8 @@ import webbrowser
 # Global variables to store the image, texture, and handler for each region
 snapshot_image = {}
 snapshot_texture = {}
-draw_handler = None
-display_snapshot_state = False  # 全局开关状态
+draw_handler = {}
+display_snapshot_state = {}  # 使用字典来存储每个窗口的快照开关状态
 
 # Get the directory of the current script (plugin directory)
 addon_directory = os.path.dirname(__file__)
@@ -67,7 +67,7 @@ shader = GPUShader(vertex_shader, fragment_shader)
 class SnapshotItem(bpy.types.PropertyGroup):
     name: bpy.props.StringProperty()
     filepath: bpy.props.StringProperty()
-    area_id: bpy.props.IntProperty()
+    area_id: bpy.props.StringProperty()
 
 # Define the operator for taking a snapshot
 class OBJECT_OT_TakeSnapshot(bpy.types.Operator):
@@ -76,10 +76,13 @@ class OBJECT_OT_TakeSnapshot(bpy.types.Operator):
     bl_description = "Take a snapshot of the current 3D view"
     
     def execute(self, context):
-        global snapshot_texture, snapshot_image
+        global snapshot_texture, snapshot_image, display_snapshot_state
 
-        # Get the area ID for the current 3D view and convert to a 4-digit number
-        area_id = hash(context.area.as_pointer()) % 10000
+        # 记录所有窗口的快照开关状态
+        previous_display_snapshot_state = display_snapshot_state.copy()
+
+        # Get the area ID for the current 3D view and convert to a 4-digit string
+        area_id = str(hash(context.area.as_pointer()) % 10000).zfill(4)
         print(f"Taking snapshot for area_id: {area_id}")
         
         # Save the snapshot to the snapshot directory
@@ -96,37 +99,78 @@ class OBJECT_OT_TakeSnapshot(bpy.types.Operator):
         # Automatically select the new snapshot in the list
         context.scene.snapshot_list_index = len(context.scene.snapshot_list) - 1
 
+        # 还原所有窗口的快照开关状态
+        display_snapshot_state = previous_display_snapshot_state
+        for area in context.screen.areas:
+            if area.type == 'VIEW_3D':
+                area_id = str(hash(area.as_pointer()) % 10000).zfill(4)
+                if display_snapshot_state.get(area_id, False):
+                    if draw_handler.get(area_id) is None:
+                        draw_handler[area_id] = bpy.types.SpaceView3D.draw_handler_add(draw_snapshot, (area_id,), 'WINDOW', 'POST_PIXEL')
+                else:
+                    if draw_handler.get(area_id) is not None:
+                        bpy.types.SpaceView3D.draw_handler_remove(draw_handler[area_id], 'WINDOW')
+                        draw_handler[area_id] = None
+                    if snapshot_image.get(area_id):
+                        bpy.data.images.remove(snapshot_image[area_id])
+                        snapshot_image[area_id] = None
+                    snapshot_texture[area_id] = None
+                for region in area.regions:
+                    if region.type == 'WINDOW':
+                        region.tag_redraw()
+        
         self.report({'INFO'}, f"Snapshot saved to {filepath}")
         snapshot_texture[area_id] = None  # Reset the texture
         snapshot_image[area_id] = None  # Reset the image
         return {'FINISHED'}
 
-# Define the operator for displaying the snapshot
-class OBJECT_OT_DisplaySnapshot(bpy.types.Operator):
-    bl_idname = "object.display_snapshot_state"
-    bl_label = "快照开关"
-    bl_description = "展示已保存的快照"
-    
+# Define the operator for toggling the snapshot display state
+class OBJECT_OT_ToggleSnapshotDisplay(bpy.types.Operator):
+    bl_idname = "object.toggle_snapshot_display"
+    bl_label = "Toggle Snapshot Display"
+    bl_description = "Toggle the display of the snapshot in the current 3D view"
+
     def execute(self, context):
-        global display_snapshot_state, draw_handler
+        global snapshot_texture, snapshot_image, draw_handler, display_snapshot_state
 
-        # Toggle the global display state
-        display_snapshot_state = not display_snapshot_state
-        print(f"Toggling snapshot display: {display_snapshot_state}")
+        # Get the area ID for the current 3D view and convert to a 4-digit string
+        area_id = str(hash(context.area.as_pointer()) % 10000).zfill(4)
+        print(f"Toggling snapshot display for area_id: {area_id}")
 
-        if not display_snapshot_state:
+        # Toggle the display state for the current area
+        display_snapshot_state[area_id] = not display_snapshot_state.get(area_id, False)
+        
+        if display_snapshot_state[area_id]:
+            # Load the snapshot image
+            selected_index = context.scene.snapshot_list_index
+            if selected_index >= 0 and selected_index < len(context.scene.snapshot_list):
+                selected_item = context.scene.snapshot_list[selected_index]
+                filepath = selected_item.filepath
+                if os.path.exists(filepath) and selected_item.area_id == area_id:
+                    snapshot_image[area_id] = bpy.data.images.load(filepath)
+                    # Create a GPUTexture from the image
+                    snapshot_texture[area_id] = gpu.texture.from_image(snapshot_image[area_id])
+                    context.scene['snapshot_filepath'] = filepath
+                    # Add the draw handler
+                    if draw_handler.get(area_id) is None:
+                        draw_handler[area_id] = bpy.types.SpaceView3D.draw_handler_add(draw_snapshot, (area_id,), 'WINDOW', 'POST_PIXEL')
+                    self.report({'INFO'}, f"Snapshot displayed from {filepath}")
+                else:
+                    self.report({'WARNING'}, "Snapshot file not found or does not belong to this area")
+            else:
+                self.report({'WARNING'}, "No snapshot selected")
+        else:
             # Remove the draw handler if not displaying
-            if draw_handler is not None:
-                bpy.types.SpaceView3D.draw_handler_remove(draw_handler, 'WINDOW')
-                draw_handler = None
-            # Clear the images and textures to free up resources
-            for area_id in snapshot_image.keys():
-                if snapshot_image[area_id]:
-                    bpy.data.images.remove(snapshot_image[area_id])
-                    snapshot_image[area_id] = None
-                snapshot_texture[area_id] = None
-
-        # Force a redraw of all 3D views
+            if draw_handler.get(area_id) is not None:
+                bpy.types.SpaceView3D.draw_handler_remove(draw_handler[area_id], 'WINDOW')
+                draw_handler[area_id] = None
+            # Clear the image and texture to free up resources
+            if snapshot_image.get(area_id):
+                bpy.data.images.remove(snapshot_image[area_id])
+                snapshot_image[area_id] = None
+            snapshot_texture[area_id] = None
+        
+        # Force a redraw of the 3D view
         for area in context.screen.areas:
             if area.type == 'VIEW_3D':
                 for region in area.regions:
@@ -142,7 +186,7 @@ class OBJECT_OT_SelectSnapshot(bpy.types.Operator):
     bl_description = "Select a snapshot to display"
 
     def execute(self, context):
-        global snapshot_texture, snapshot_image, draw_handler
+        global snapshot_texture, snapshot_image, draw_handler, display_snapshot_state
         
         # Get the selected snapshot
         selected_index = context.scene.snapshot_list_index
@@ -152,26 +196,34 @@ class OBJECT_OT_SelectSnapshot(bpy.types.Operator):
         print(f"Selecting snapshot for original_area_id: {original_area_id}")
 
         if os.path.exists(filepath):
+            # Close snapshot display for all areas
+            for area in context.screen.areas:
+                if area.type == 'VIEW_3D':
+                    area_id = str(hash(area.as_pointer()) % 10000).zfill(4)
+                    if display_snapshot_state.get(area_id, False):
+                        display_snapshot_state[area_id] = False
+                        if draw_handler.get(area_id) is not None:
+                            bpy.types.SpaceView3D.draw_handler_remove(draw_handler[area_id], 'WINDOW')
+                            draw_handler[area_id] = None
+                        if snapshot_image.get(area_id):
+                            bpy.data.images.remove(snapshot_image[area_id])
+                            snapshot_image[area_id] = None
+                        snapshot_texture[area_id] = None
+                        for region in area.regions:
+                            if region.type == 'WINDOW':
+                                region.tag_redraw()
+
             # Ensure the snapshot is displayed in its original area
             for area in context.screen.areas:
                 if area.type == 'VIEW_3D':
-                    area_id = hash(area.as_pointer()) % 10000
+                    area_id = str(hash(area.as_pointer()) % 10000).zfill(4)
                     if area_id == original_area_id:
-                        # Remove the previous draw handler if it exists
-                        if draw_handler is not None:
-                            bpy.types.SpaceView3D.draw_handler_remove(draw_handler, 'WINDOW')
-                            draw_handler = None
-
-                        # Load the selected snapshot image
+                        display_snapshot_state[original_area_id] = True
                         snapshot_image[original_area_id] = bpy.data.images.load(filepath)
                         snapshot_texture[original_area_id] = gpu.texture.from_image(snapshot_image[original_area_id])
                         context.scene['snapshot_filepath'] = filepath
-
-                        # Add the draw handler
-                        draw_handler = bpy.types.SpaceView3D.draw_handler_add(draw_snapshot, (original_area_id,), 'WINDOW', 'POST_PIXEL')
+                        draw_handler[original_area_id] = bpy.types.SpaceView3D.draw_handler_add(draw_snapshot, (original_area_id,), 'WINDOW', 'POST_PIXEL')
                         self.report({'INFO'}, f"Snapshot displayed from {filepath} in its original area")
-
-                        # Force a redraw of the 3D view
                         for region in area.regions:
                             if region.type == 'WINDOW':
                                 region.tag_redraw()
@@ -200,6 +252,17 @@ class OBJECT_OT_ClearSnapshotList(bpy.types.Operator):
 
     def execute(self, context):
         context.scene.snapshot_list.clear()
+
+        # Force a redraw of all 3D views to update the snapshot list
+        for area in context.screen.areas:
+            if area.type == 'VIEW_3D':
+                for region in area.regions:
+                    if region.type == 'WINDOW':
+                        region.tag_redraw()
+
+        # Force a UI update
+        bpy.context.window_manager.update_tag()
+
         self.report({'INFO'}, "Snapshot list cleared")
         return {'FINISHED'}
 
@@ -208,12 +271,30 @@ def draw_snapshot(area_id):
     global snapshot_texture
     # Get the current area (region) being drawn
     current_area = bpy.context.area
-    if current_area and hash(current_area.as_pointer()) % 10000 == area_id:
+    if current_area and str(hash(current_area.as_pointer()) % 10000).zfill(4) == area_id:
         if snapshot_texture.get(area_id):
             # Get the dimensions of the 3D view
             region = bpy.context.region
             width = region.width
             height = region.height
+
+            # Get the dimensions of the snapshot
+            img_width = snapshot_image[area_id].size[0]
+            img_height = snapshot_image[area_id].size[1]
+            img_aspect = img_width / img_height
+            region_aspect = width / height
+
+            # Calculate the scaled dimensions to maintain aspect ratio
+            if region_aspect > img_aspect:
+                draw_height = height
+                draw_width = height * img_aspect
+                draw_x = (width - draw_width) / 2
+                draw_y = 0
+            else:
+                draw_width = width
+                draw_height = width / img_aspect
+                draw_x = 0
+                draw_y = (height - draw_height) / 2
 
             # Get the opacity value
             opacity = bpy.context.scene.snapshot_opacity / 100.0
@@ -222,7 +303,7 @@ def draw_snapshot(area_id):
             batch = batch_for_shader(
                 shader, 'TRI_FAN',
                 {
-                    "pos": ((0, 0), (width, 0), (width, height), (0, height)),
+                    "pos": ((draw_x, draw_y), (draw_x + draw_width, draw_y), (draw_x + draw_width, draw_y + draw_height), (draw_x, draw_y + draw_height)),
                     "texCoord": ((0, 0), (1, 0), (1, 1), (0, 1)),
                 },
             )
@@ -254,11 +335,12 @@ class VIEW3D_PT_SnapshotPanel(bpy.types.Panel):
         layout = self.layout
 
         # 获取当前3D视图窗口的ID
-        area_id = hash(context.area.as_pointer()) % 10000
+        area_id = str(hash(context.area.as_pointer()) % 10000).zfill(4)
+        is_displaying_snapshot = display_snapshot_state.get(area_id, False)
 
         layout.label(text="渲染快照")
         layout.operator("object.take_snapshot")
-        layout.operator("object.display_snapshot_state")
+        layout.operator("object.toggle_snapshot_display", icon='HIDE_OFF' if is_displaying_snapshot else 'HIDE_ON')
         layout.prop(context.scene, "snapshot_opacity")
         layout.label(text=f"当前3D Viewer ID: {area_id}")
         layout.label(text="快照列表")
@@ -272,7 +354,7 @@ class VIEW3D_PT_SnapshotPanel(bpy.types.Panel):
 allClass = [
     SnapshotItem, 
     OBJECT_OT_TakeSnapshot, 
-    OBJECT_OT_DisplaySnapshot, 
+    OBJECT_OT_ToggleSnapshotDisplay, 
     OBJECT_OT_SelectSnapshot, 
     OBJECT_OT_OpenSnapshotsFolder, 
     OBJECT_OT_ClearSnapshotList, 
