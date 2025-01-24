@@ -1,20 +1,25 @@
 bl_info = {
-    "name": "Snapshot",
+    "name": "Snapshot and STOOL",
     "category": "3D View",
     "author": "GitHub Copilot & visnz",
     "blender": (4, 0, 0),
     "location": "UI",
-    "description": "Take a snapshot of the current 3D view",
-    "version": (1, 3)
+    "description": "Take a snapshot of the current 3D view and manage parenting operations",
+    "version": (1, 0, 0)
 }
 
 import bpy
 import os
 import gpu
+import subprocess
+import platform
+from bpy.types import Operator
 from gpu.types import GPUShader
 from gpu_extras.batch import batch_for_shader
 import webbrowser
+import json
 
+## =============== Snapshot ===============
 # Global variables to store the image, texture, and handler
 snapshot_image = None
 snapshot_texture = None
@@ -54,7 +59,9 @@ fragment_shader = '''
     void main()
     {
         vec4 color = texture(image, texCoord_interp);
-        fragColor = vec4(color.rgb, color.a * opacity);
+        color.rgb /= color.a;
+        color.rgb = (color.rgb - 0.5) * 1.008 + 0.5;  // 使用固定的对比度值
+        fragColor = vec4(color.r * 1.004, color.g * 1.004, color.b * 1.004, color.a * opacity);  // 使用固定的亮度值
     }
 '''
 
@@ -63,13 +70,13 @@ shader = GPUShader(vertex_shader, fragment_shader)
 
 # Define a property group to hold the file path
 class SnapshotItem(bpy.types.PropertyGroup):
-    name: bpy.props.StringProperty()
-    filepath: bpy.props.StringProperty()
+    name: bpy.props.StringProperty() # type: ignore
+    filepath: bpy.props.StringProperty() # type: ignore
 
 # Define the operator for taking a snapshot
-class OBJECT_OT_TakeSnapshot(bpy.types.Operator):
+class OBJECT_OT_TakeSnapshot(Operator):
     bl_idname = "object.take_snapshot"
-    bl_label = "Take Snapshot"
+    bl_label = "拍摄"
     bl_description = "Take a snapshot of the current 3D view"
     
     def execute(self, context):
@@ -94,10 +101,10 @@ class OBJECT_OT_TakeSnapshot(bpy.types.Operator):
         return {'FINISHED'}
 
 # Define the operator for displaying the snapshot
-class OBJECT_OT_DisplaySnapshot(bpy.types.Operator):
+class OBJECT_OT_DisplaySnapshot(Operator):
     bl_idname = "object.display_snapshot_state"
-    bl_label = "Display Snapshot"
-    bl_description = "Display the saved snapshot over the 3D view"
+    bl_label = "快照开关"
+    bl_description = "展示已保存的快照"
     
     def execute(self, context):
         global snapshot_texture, snapshot_image, display_snapshot_state, draw_handler
@@ -145,7 +152,7 @@ class OBJECT_OT_DisplaySnapshot(bpy.types.Operator):
         return {'FINISHED'}
 
 # Define the operator for selecting a snapshot
-class OBJECT_OT_SelectSnapshot(bpy.types.Operator):
+class OBJECT_OT_SelectSnapshot(Operator):
     bl_idname = "object.select_snapshot"
     bl_label = "Select Snapshot"
     bl_description = "Select a snapshot to display"
@@ -187,10 +194,10 @@ class OBJECT_OT_SelectSnapshot(bpy.types.Operator):
         return {'FINISHED'}
 
 # Define the operator for opening the snapshots folder
-class OBJECT_OT_OpenSnapshotsFolder(bpy.types.Operator):
+class OBJECT_OT_OpenSnapshotsFolder(Operator):
     bl_idname = "object.open_snapshots_folder"
-    bl_label = "Open Snapshots Folder"
-    bl_description = "Open the folder where snapshots are stored"
+    bl_label = "打开快照文件夹"
+    bl_description = "打开快照文件夹"
 
     def execute(self, context):
         webbrowser.open(snapshot_dir)
@@ -198,10 +205,10 @@ class OBJECT_OT_OpenSnapshotsFolder(bpy.types.Operator):
         return {'FINISHED'}
 
 # Define the operator for clearing the snapshot list
-class OBJECT_OT_ClearSnapshotList(bpy.types.Operator):
+class OBJECT_OT_ClearSnapshotList(Operator):
     bl_idname = "object.clear_snapshot_list"
-    bl_label = "Clear Snapshot List"
-    bl_description = "Clear the snapshot list without deleting the files"
+    bl_label = "清除快照列表"
+    bl_description = "清除快照列表（不会清除文件，从头开始覆盖）"
 
     def execute(self, context):
         context.scene.snapshot_list.clear()
@@ -247,22 +254,24 @@ def update_snapshot_selection(self, context):
 
 ### 面板类函数 ###
 class VIEW3D_PT_SnapshotPanel(bpy.types.Panel):
-    bl_label = "Snapshot Panel"
+    bl_label = "Snapshot and STOOL Panel"
     bl_idname = "VIEW3D_PT_snapshot_panel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = 'Snapshot'
+    bl_category = 'Snapshot & STOOL'
     
     def draw(self, context):
         layout = self.layout
-        layout.operator("object.take_snapshot", text="Take Snapshot")
-        layout.operator("object.display_snapshot_state", text="Display Snapshot")
-        layout.prop(context.scene, "snapshot_opacity", text="Snapshot Opacity")
-        layout.label(text="Snapshot List:")
+        layout.label(text="渲染快照")
+        layout.operator("object.take_snapshot")
+        layout.operator("object.display_snapshot_state")
+        layout.prop(context.scene, "snapshot_opacity")
+        layout.label(text="快照列表")
         col = layout.column()
         col.template_list("UL_SnapshotList", "snapshot_list", context.scene, "snapshot_list", context.scene, "snapshot_list_index")
-        layout.operator("object.open_snapshots_folder", text="Open Snapshots Folder")
-        layout.operator("object.clear_snapshot_list", text="Clear Snapshot List")
+        layout.operator("object.open_snapshots_folder")
+        layout.operator("object.clear_snapshot_list")
+        
 
 ### 注册类函数 ###
 allClass = [
@@ -273,15 +282,15 @@ allClass = [
     OBJECT_OT_OpenSnapshotsFolder, 
     OBJECT_OT_ClearSnapshotList, 
     UL_SnapshotList, 
-    VIEW3D_PT_SnapshotPanel
+    VIEW3D_PT_SnapshotPanel,
 ]
 
 def register():
     for cls in allClass:
         bpy.utils.register_class(cls)
     bpy.types.Scene.snapshot_opacity = bpy.props.IntProperty(
-        name="Snapshot Opacity",
-        description="Opacity of the snapshot overlay",
+        name="快照不透明度",
+        description="快照覆盖在画面的不透明度",
         default=100,
         min=0,
         max=100
