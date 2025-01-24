@@ -66,9 +66,9 @@ shader = GPUShader(vertex_shader, fragment_shader)
 
 # Define a property group to hold the file path and its corresponding area ID
 class SnapshotItem(bpy.types.PropertyGroup):
-    name: bpy.props.StringProperty()
-    filepath: bpy.props.StringProperty()
-    area_id: bpy.props.StringProperty()
+    name: bpy.props.StringProperty() # type: ignore
+    filepath: bpy.props.StringProperty() # type: ignore
+    area_id: bpy.props.StringProperty() # type: ignore
 
 # Define the operator for taking a snapshot
 class OBJECT_OT_TakeSnapshot(bpy.types.Operator):
@@ -248,19 +248,25 @@ class OBJECT_OT_ClearSnapshotList(bpy.types.Operator):
     bl_description = "清除快照列表（不会清除文件，从头开始覆盖）"
 
     def execute(self, context):
+        # 将快照列表的选择设置为空
+        context.scene.snapshot_list_index = -1
+        
         context.scene.snapshot_list.clear()
 
-        # 强制重绘所有3D视图以更新快照列表
-        for area in context.screen.areas:
-            if area.type == 'VIEW_3D':
-                for region in area.regions:
-                    if region.type == 'WINDOW':
-                        region.tag_redraw()
+        # 清除所有快照数据和状态
+        for area_id in list(display_snapshot_state.keys()):
+            if display_snapshot_state[area_id]:
+                display_snapshot_state[area_id] = False
+                visibility_state[area_id] = False
+                if draw_handler.get(area_id) is not None:
+                    bpy.types.SpaceView3D.draw_handler_remove(draw_handler[area_id], 'WINDOW')
+                    draw_handler[area_id] = None
+                if snapshot_image.get(area_id):
+                    bpy.data.images.remove(snapshot_image[area_id])
+                    snapshot_image[area_id] = None
+                snapshot_texture[area_id] = None
 
-        # 强制更新UI
-        bpy.context.window_manager.update_tag()
-
-        self.report({'INFO'}, "Snapshot list cleared")
+        self.report({'INFO'}, "Snapshot list cleared and all snapshots disabled")
         return {'FINISHED'}
 
 # 提供了一个绘制画面的函数
@@ -336,11 +342,11 @@ def update_snapshot_selection(self, context):
 
 ### 面板类函数 ###
 class VIEW3D_PT_SnapshotPanel(bpy.types.Panel):
-    bl_label = "Snapshot and STOOL Panel"
-    bl_idname = "VIEW3D_PT_snapshot_panel"
+    bl_label = "Snapshot"
+    bl_idname = "VIEW3D_PT_snapshot_panel_Snapshot"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = 'Snapshot & STOOL'
+    bl_category = 'Tool'
     
     def draw(self, context):
         layout = self.layout
