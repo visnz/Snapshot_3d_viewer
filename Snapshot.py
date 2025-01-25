@@ -224,7 +224,7 @@ def check_snapshot_files(context):
         if not os.path.exists(item.filepath):
             context.scene.snapshot_list.remove(item)
 
-def draw_snapshot(area_id, frame_width, frame_height, region_width, region_height):
+def draw_snapshot(area_id, region_width, region_height):
     global snapshot_texture, visibility_state
     current_area = bpy.context.area
     if current_area and str(hash(current_area.as_pointer()) % 10000).zfill(4) == area_id:
@@ -244,6 +244,11 @@ def draw_snapshot(area_id, frame_width, frame_height, region_width, region_heigh
             draw_width, draw_height = width, height
             opacity = bpy.context.scene.snapshot_opacity / 100.0
             slider_position = bpy.context.scene.slider_position
+            
+            # Ensure slider_position is not None
+            if slider_position is None:
+                slider_position = 0.5  # Default value
+            
             batch = batch_for_shader(shader, 'TRI_FAN', {"pos": ((draw_x + draw_width * (1 - slider_position), draw_y), (draw_x + draw_width, draw_y), (draw_x + draw_width, draw_y + draw_height), (draw_x + draw_width * (1 - slider_position), draw_y + draw_height)), "texCoord": ((1 - slider_position, 0), (1, 0), (1, 1), (1 - slider_position, 1))})
             gpu.state.blend_set('ALPHA')
             shader.bind()
