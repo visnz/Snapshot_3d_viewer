@@ -22,14 +22,19 @@ vert_shader = '''
 frag_shader = '''
     uniform sampler2D image;
     uniform float opacity;
+    uniform float brightness;
+    uniform float contrast;
+    uniform float gamma;
     in vec2 texCoord_interp;
     out vec4 fragColor;
     void main() {
         vec4 color = texture(image, texCoord_interp);
-        fragColor = vec4(color.rgb*0.996, color.a * opacity);
+        color.rgb *= brightness-0.02;
+        color.rgb = (color.rgb - 0.5) * (contrast+0.002) + 0.5;
+        color.rgb = pow(color.rgb, vec3(2.2 / (gamma-0.02)));
+        fragColor = vec4(color.rgb * 1, color.a * opacity);
     }
 '''
-
 shader = GPUShader(vert_shader, frag_shader)
 
 class SnapItem(bpy.types.PropertyGroup):
@@ -115,6 +120,7 @@ class TakeSnap(bpy.types.Operator):
             if region.type == 'WINDOW':
                 region.tag_redraw()
         return {'FINISHED'}
+
 
 class ToggleSnapDisplay(bpy.types.Operator):
     bl_idname = "object.toggle_snapshot_display"
@@ -218,7 +224,6 @@ class ClearSnapList(bpy.types.Operator):
             snap_tex[area_id], snap_img[area_id], draw_hdl[area_id] = None, None, None
         self.report({'INFO'}, "Snapshot list cleared and all snapshots disabled")
         return {'FINISHED'}
-
 def check_snap_files(context):
     for item in list(context.scene.snapshot_list):
         if not os.path.exists(item.filepath):
@@ -247,10 +252,16 @@ def draw_snap(area_id, region_width, region_height):
             draw_y = (cur_height - draw_height) / 2
             opacity = bpy.context.scene.snapshot_opacity / 100.0
             pos = bpy.context.scene.slider_position
+            brightness = bpy.context.scene.snapshot_brightness
+            contrast = bpy.context.scene.snapshot_contrast
+            gamma = bpy.context.scene.snapshot_gamma
             batch = batch_for_shader(shader, 'TRI_FAN', {"pos": ((draw_x + draw_width * (1 - pos), draw_y), (draw_x + draw_width, draw_y), (draw_x + draw_width, draw_y + draw_height), (draw_x + draw_width * (1 - pos), draw_y + draw_height)), "texCoord": ((1 - pos, 0), (1, 0), (1, 1), (1 - pos, 1))})
             gpu.state.blend_set('ALPHA')
             shader.bind()
             shader.uniform_float("opacity", opacity)
+            shader.uniform_float("brightness", brightness)
+            shader.uniform_float("contrast", contrast)
+            shader.uniform_float("gamma", gamma)
             shader.uniform_sampler("image", snap_tex[area_id])
             batch.draw(shader)
             gpu.state.blend_set('NONE')
@@ -276,6 +287,7 @@ class SnapPanel(bpy.types.Panel):
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = 'Tool'
+
     def draw(self, context):
         layout = self.layout
         area_id = str(hash(context.area.as_pointer()) % 10000).zfill(4)
@@ -283,10 +295,19 @@ class SnapPanel(bpy.types.Panel):
         layout.label(text="渲染快照")
         layout.operator("object.take_snapshot")
         layout.operator("object.toggle_snapshot_display", icon='HIDE_OFF' if is_disp_snap else 'HIDE_ON')
+        
         layout.label(text=f"快照列表（当前窗口ID: {area_id}）")
         col = layout.column()
         col.template_list("SnapList", "snapshot_list", context.scene, "snapshot_list", context.scene, "snapshot_list_index")
-        layout.prop(context.scene, "snapshot_opacity")
+        box = layout.box()
+        row = box.row()
+        row.prop(context.scene, "show_image_settings", text="", icon="TRIA_DOWN" if context.scene.show_image_settings else "TRIA_RIGHT", emboss=False)
+        row.label(text="图像设置")
+        if context.scene.show_image_settings:
+            box.prop(context.scene, "snapshot_opacity")
+            box.prop(context.scene, "snapshot_brightness")
+            box.prop(context.scene, "snapshot_contrast")
+            box.prop(context.scene, "snapshot_gamma")
         layout.operator("object.open_snapshots_folder")
         layout.operator("object.clear_snapshot_list")
         layout.operator("object.drag_slider")
@@ -309,7 +330,10 @@ class DragSlider(bpy.types.Operator):
             return {'RUNNING_MODAL'}
         return {'CANCELLED'}
 
-all_cls = [SnapItem, TakeSnap, ToggleSnapDisplay, SelectSnap, OpenSnapFolder, ClearSnapList, SnapList, SnapPanel, DragSlider]
+all_cls = [
+    SnapItem, TakeSnap, ToggleSnapDisplay, SelectSnap, OpenSnapFolder, 
+    ClearSnapList, SnapList, SnapPanel, DragSlider
+]
 
 def register():
     for cls in all_cls:
@@ -321,6 +345,28 @@ def register():
         min=0,
         max=100
     )
+    bpy.types.Scene.snapshot_brightness = bpy.props.FloatProperty(
+        name="亮度",
+        description="快照亮度",
+        default=1.0,
+        min=0.0,
+        max=5.0
+    )
+    bpy.types.Scene.snapshot_contrast = bpy.props.FloatProperty(
+        name="对比度",
+        description="快照对比度",
+        default=1.0,
+        min=0.0,
+        max=5.0
+    )
+    bpy.types.Scene.snapshot_gamma = bpy.props.FloatProperty(
+        name="伽马",
+        description="快照伽马",
+        default=2.2,
+        min=0.1,
+        max=10.0
+    )
+    bpy.types.Scene.show_image_settings = bpy.props.BoolProperty(name="Show Image Settings", default=False)
     bpy.types.Scene.snapshot_list = bpy.props.CollectionProperty(type=SnapItem)
     bpy.types.Scene.snapshot_list_index = bpy.props.IntProperty(name="Index for snapshot_list", default=0, update=update_snap_sel)
     bpy.types.Scene.use_full_render = bpy.props.BoolProperty(name="EEVEE/Cycles模式下完全渲染", description="是否在EEVEE/Cycles模式下进行完全渲染", default=False)
@@ -343,6 +389,10 @@ def register():
 
 def unregister():
     del bpy.types.Scene.snapshot_opacity
+    del bpy.types.Scene.snapshot_brightness
+    del bpy.types.Scene.snapshot_contrast
+    del bpy.types.Scene.snapshot_gamma
+    del bpy.types.Scene.show_image_settings
     del bpy.types.Scene.snapshot_list
     del bpy.types.Scene.snapshot_list_index
     del bpy.types.Scene.use_full_render
