@@ -98,7 +98,7 @@ class FILEBROWSER_OT_select_explorer_path(bpy.types.Operator):
     bl_idname = "file_browser.select_explorer_path"
     bl_label = "Select Explorer Path"
 
-    path_index: bpy.props.IntProperty()
+    path_index: bpy.props.IntProperty()  # type: ignore
 
     def execute(self, context):
         global explorer_paths, feature_enabled
@@ -118,12 +118,11 @@ class FILEBROWSER_UL_explorer_paths(bpy.types.UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
         folder_name = os.path.basename(item.name)
         row = layout.row()
-        row.label(text=folder_name, icon='FILE_FOLDER')
-        op = row.operator("file_browser.select_explorer_path", text="", icon='FILEBROWSER')
+        op = row.operator("file_browser.select_explorer_path", text=folder_name, icon='FILE_FOLDER')
         op.path_index = index
 
 class ExplorerPathsCollection(bpy.types.PropertyGroup):
-    name: bpy.props.StringProperty()
+    name: bpy.props.StringProperty()  # type: ignore
 
 class FILEBROWSER_PT_open_explorer_path(bpy.types.Panel):
     bl_space_type = 'FILE_BROWSER'
