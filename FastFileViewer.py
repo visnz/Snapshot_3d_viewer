@@ -42,7 +42,8 @@ def update_explorer_paths():
 
 class FILEBROWSER_OT_open_explorer_path(bpy.types.Operator):
     bl_idname = "file_browser.open_explorer_path"
-    bl_label = "切换文件夹"
+    bl_label = "切换"
+    bl_description = "切换到下一个Explorer窗口路径(快捷键: Ctrl+G)"
 
     def execute(self, context):
         global current_path_index, explorer_paths, feature_enabled, initialized
@@ -82,7 +83,8 @@ class FILEBROWSER_OT_toggle_feature(bpy.types.Operator):
 
 class FILEBROWSER_OT_force_refresh(bpy.types.Operator):
     bl_idname = "file_browser.force_refresh"
-    bl_label = "强制刷新文件夹列表"
+    bl_label = "刷新文件夹列表"
+    bl_description = "使用Powershell获取当前系统中所有的Explorer窗口路径"
 
     def execute(self, context):
         global initialized, feature_enabled
