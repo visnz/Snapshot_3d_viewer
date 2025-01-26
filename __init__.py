@@ -18,7 +18,7 @@ feature_enabled = True
 initialized = False
 
 def get_explorer_paths():
-    paths = []
+    paths = set()  # 使用 set 来存储唯一的文件夹路径
     try:
         powershell_script = '''
         [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -36,10 +36,10 @@ def get_explorer_paths():
         '''
         powershell_command = ["powershell", "-Command", powershell_script]
         powershell_output = subprocess.check_output(powershell_command, text=True, encoding='utf-8', errors='ignore')
-        paths = [line.strip().replace('/', '\\') for line in powershell_output.splitlines() if os.path.isdir(line.strip().replace('/', '\\'))]
+        paths.update(line.strip().replace('/', '\\') for line in powershell_output.splitlines() if os.path.isdir(line.strip().replace('/', '\\')))
     except subprocess.CalledProcessError:
         raise Exception("PowerShell 脚本执行失败，无法获取 explorer.exe 窗口路径。")
-    return paths
+    return list(paths)
 
 def update_explorer_paths():
     global explorer_paths, current_path_index
@@ -108,7 +108,7 @@ class FILEBROWSER_OT_select_explorer_path(bpy.types.Operator):
     bl_idname = "file_browser.select_explorer_path"
     bl_label = "Select Explorer Path"
 
-    path_index: bpy.props.IntProperty()
+    path_index: bpy.props.IntProperty()  # type: ignore
 
     def execute(self, context):
         global explorer_paths, feature_enabled
@@ -123,21 +123,22 @@ class FILEBROWSER_OT_select_explorer_path(bpy.types.Operator):
         return {'FINISHED'}
 
 class FILEBROWSER_UL_explorer_paths(bpy.types.UIList):
+    bl_idname = "FASTFILEVIEWER_UL_explorer_paths"
+
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
         folder_name = os.path.basename(item.name)
         row = layout.row()
-        row.label(text=folder_name, icon='FILE_FOLDER')
-        op = row.operator("file_browser.select_explorer_path", text="", icon='FILEBROWSER')
+        op = row.operator("file_browser.select_explorer_path", text=folder_name, icon='FILE_FOLDER')
         op.path_index = index
 
 class ExplorerPathsCollection(bpy.types.PropertyGroup):
-    name: bpy.props.StringProperty()
+    name: bpy.props.StringProperty()  # type: ignore
 
 class FILEBROWSER_PT_open_explorer_path(bpy.types.Panel):
     bl_space_type = 'FILE_BROWSER'
     bl_region_type = 'TOOLS'
     bl_label = "Fast File Viewer"
-    bl_category = "Tools"
+    bl_category = "Tool"
 
     def draw(self, context):
         layout = self.layout
@@ -147,7 +148,7 @@ class FILEBROWSER_PT_open_explorer_path(bpy.types.Panel):
         row = layout.row()
         row.operator("file_browser.open_explorer_path")
         col = layout.column()
-        col.template_list("FILEBROWSER_UL_explorer_paths", "", context.scene, "explorer_paths", context.scene, "explorer_paths_index")
+        col.template_list("FASTFILEVIEWER_UL_explorer_paths", "", context.scene, "explorer_paths", context.scene, "explorer_paths_index")
 
 def depsgraph_update_handler(scene):
     global initialized
@@ -157,14 +158,19 @@ def depsgraph_update_handler(scene):
 
 addon_keymaps = []
 
+all_classes = [
+    FILEBROWSER_OT_open_explorer_path,
+    FILEBROWSER_OT_toggle_feature,
+    FILEBROWSER_OT_force_refresh,
+    FILEBROWSER_OT_select_explorer_path,
+    FILEBROWSER_UL_explorer_paths,
+    ExplorerPathsCollection,
+    FILEBROWSER_PT_open_explorer_path
+]
+
 def register():
-    bpy.utils.register_class(FILEBROWSER_OT_open_explorer_path)
-    bpy.utils.register_class(FILEBROWSER_OT_toggle_feature)
-    bpy.utils.register_class(FILEBROWSER_OT_force_refresh)
-    bpy.utils.register_class(FILEBROWSER_OT_select_explorer_path)
-    bpy.utils.register_class(FILEBROWSER_UL_explorer_paths)
-    bpy.utils.register_class(ExplorerPathsCollection)
-    bpy.utils.register_class(FILEBROWSER_PT_open_explorer_path)
+    for cls in all_classes:
+        bpy.utils.register_class(cls)
     bpy.types.Scene.explorer_paths = bpy.props.CollectionProperty(type=ExplorerPathsCollection)
     bpy.types.Scene.explorer_paths_index = bpy.props.IntProperty()
     bpy.app.handlers.depsgraph_update_pre.append(depsgraph_update_handler)
@@ -174,13 +180,8 @@ def register():
     addon_keymaps.append((km, kmi))
 
 def unregister():
-    bpy.utils.unregister_class(FILEBROWSER_OT_open_explorer_path)
-    bpy.utils.unregister_class(FILEBROWSER_OT_toggle_feature)
-    bpy.utils.unregister_class(FILEBROWSER_OT_force_refresh)
-    bpy.utils.unregister_class(FILEBROWSER_OT_select_explorer_path)
-    bpy.utils.unregister_class(FILEBROWSER_UL_explorer_paths)
-    bpy.utils.unregister_class(ExplorerPathsCollection)
-    bpy.utils.unregister_class(FILEBROWSER_PT_open_explorer_path)
+    for cls in reversed(all_classes):
+        bpy.utils.unregister_class(cls)
     bpy.app.handlers.depsgraph_update_pre.remove(depsgraph_update_handler)
     del bpy.types.Scene.explorer_paths
     del bpy.types.Scene.explorer_paths_index
