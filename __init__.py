@@ -34,7 +34,7 @@ class MyAddonPreferences(bpy.types.AddonPreferences):
         update=update_stool_enable
     ) # type: ignore
     enable_fastFileViewer: bpy.props.BoolProperty(
-        name="启用快速文件夹访问",
+        name="启用快速文件夹访问（Windows特供功能）",
         description="启用快速文件夹访问",
         default=False,
         update=update_fastFileViewer_enable

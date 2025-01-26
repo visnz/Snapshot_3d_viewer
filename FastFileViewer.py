@@ -1,6 +1,7 @@
 import bpy
 import subprocess
 import os
+import platform  # 确保导入 platform 模块
 
 current_path_index = 0
 explorer_paths = []
@@ -8,7 +9,7 @@ feature_enabled = True
 initialized = False
 
 def get_explorer_paths():
-    paths = set()  # 使用 set 来存储唯一的文件夹路径
+    paths = set()
     try:
         powershell_script = '''
         [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -114,6 +115,23 @@ class FILEBROWSER_OT_select_explorer_path(bpy.types.Operator):
             self.report({'WARNING'}, "No valid Explorer window found.")
         return {'FINISHED'}
 
+class FILEBROWSER_OT_open_current_folder(bpy.types.Operator):
+    bl_idname = "file_browser.open_current_folder"
+    bl_label = "打开当前文件夹"
+    bl_description = "在系统文件浏览器中打开当前文件夹"
+
+    def execute(self, context):
+        if not context.space_data or not hasattr(context.space_data, 'params'):
+            self.report({'ERROR'}, "Context is not a file browser.")
+            return {'CANCELLED'}
+        current_path = context.space_data.params.directory.decode('utf-8')
+        if os.path.isdir(current_path):
+            subprocess.Popen(['explorer', current_path])
+            self.report({'INFO'}, f"Opened folder: {current_path}")
+        else:
+            self.report({'WARNING'}, "No valid folder found.")
+        return {'FINISHED'}
+
 class FILEBROWSER_UL_explorer_paths(bpy.types.UIList):
     bl_idname = "FASTFILEVIEWER_UL_explorer_paths"
 
@@ -129,7 +147,7 @@ class ExplorerPathsCollection(bpy.types.PropertyGroup):
 class FILEBROWSER_PT_open_explorer_path(bpy.types.Panel):
     bl_space_type = 'FILE_BROWSER'
     bl_region_type = 'TOOLS'
-    bl_label = "Fast File Viewer"
+    bl_label = "快速文件访问（Windows特供功能）"
     bl_category = "Tools"
 
     def draw(self, context):
@@ -139,6 +157,8 @@ class FILEBROWSER_PT_open_explorer_path(bpy.types.Panel):
         row.operator("file_browser.force_refresh", text="强制刷新文件夹列表")
         row = layout.row()
         row.operator("file_browser.open_explorer_path")
+        row = layout.row()
+        row.operator("file_browser.open_current_folder", text="打开当前文件夹")
         col = layout.column()
         col.template_list("FASTFILEVIEWER_UL_explorer_paths", "", context.scene, "explorer_paths", context.scene, "explorer_paths_index")
 
@@ -155,6 +175,7 @@ all_classes = [
     FILEBROWSER_OT_toggle_feature,
     FILEBROWSER_OT_force_refresh,
     FILEBROWSER_OT_select_explorer_path,
+    FILEBROWSER_OT_open_current_folder,
     FILEBROWSER_UL_explorer_paths,
     ExplorerPathsCollection,
     FILEBROWSER_PT_open_explorer_path
