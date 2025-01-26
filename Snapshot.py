@@ -26,7 +26,7 @@ fragment_shader = '''
     out vec4 fragColor;
     void main() {
         vec4 color = texture(image, texCoord_interp);
-        fragColor = vec4(color.rgb, color.a * opacity);
+        fragColor = vec4(color.rgb*0.996, color.a * opacity);
     }
 '''
 
@@ -94,9 +94,9 @@ class OBJECT_OT_TakeSnapshot(bpy.types.Operator):
                         region.tag_redraw()
         region = next(region for region in context.area.regions if region.type == 'WINDOW')
         if context.scene.use_full_render and context.space_data.shading.type == 'RENDERED':
-            filename = f"渲染_{area_id}_{len(context.scene.snapshot_list)}.png"
+            filename = f"渲染_{area_id}_{len(context.scene.snapshot_list)}_{region.width}x{region.height}.png"
         else:
-            filename = f"快照_{area_id}_{len(context.scene.snapshot_list)}.png"
+            filename = f"快照_{area_id}_{len(context.scene.snapshot_list)}_{region.width}x{region.height}.png"
         filepath = os.path.join(snapshot_dir, filename)
         if context.scene.use_full_render and context.space_data.shading.type == 'RENDERED':
             time_limit = context.scene.render_time_limit
@@ -113,7 +113,7 @@ class OBJECT_OT_TakeSnapshot(bpy.types.Operator):
         snapshot_texture[area_id] = gpu.texture.from_image(snapshot_image[area_id])
         context.scene['snapshot_filepath'] = filepath
         if not draw_handler.get(area_id):
-            draw_handler[area_id] = bpy.types.SpaceView3D.draw_handler_add(draw_snapshot, (area_id, region_width, region_height), 'WINDOW', 'POST_PIXEL')
+            draw_handler[area_id] = bpy.types.SpaceView3D.draw_handler_add(draw_snapshot, (area_id, None, None, region_width, region_height), 'WINDOW', 'POST_PIXEL')
         for region in context.area.regions:
             if region.type == 'WINDOW':
                 region.tag_redraw()
@@ -137,7 +137,10 @@ class OBJECT_OT_ToggleSnapshotDisplay(bpy.types.Operator):
                     snapshot_texture[area_id] = gpu.texture.from_image(snapshot_image[area_id])
                     context.scene['snapshot_filepath'] = filepath
                     if not draw_handler.get(area_id):
-                        draw_handler[area_id] = bpy.types.SpaceView3D.draw_handler_add(draw_snapshot, (area_id, None, None), 'WINDOW', 'POST_PIXEL')
+                        # 从文件名中提取宽度和高度
+                        name_parts = selected_item.name.split('_')
+                        region_width, region_height = map(int, name_parts[-1].split('x'))
+                        draw_handler[area_id] = bpy.types.SpaceView3D.draw_handler_add(draw_snapshot, (area_id, None, None, region_width, region_height), 'WINDOW', 'POST_PIXEL')
                     visibility_state[area_id] = True
                     self.report({'INFO'}, f"Snapshot displayed from {filepath}")
                 else:
@@ -182,7 +185,10 @@ class OBJECT_OT_SelectSnapshot(bpy.types.Operator):
                         snapshot_texture[original_area_id] = gpu.texture.from_image(snapshot_image[original_area_id])
                         context.scene['snapshot_filepath'] = filepath
                         if not draw_handler.get(original_area_id):
-                            draw_handler[original_area_id] = bpy.types.SpaceView3D.draw_handler_add(draw_snapshot, (original_area_id, None, None), 'WINDOW', 'POST_PIXEL')
+                            # 从文件名中提取宽度和高度
+                            name_parts = selected_item.name.split('_')
+                            region_width, region_height = map(int, name_parts[-1].split('x'))
+                            draw_handler[original_area_id] = bpy.types.SpaceView3D.draw_handler_add(draw_snapshot, (original_area_id, None, None, region_width, region_height), 'WINDOW', 'POST_PIXEL')
                         self.report({'INFO'}, f"Snapshot displayed from {filepath} in its original area")
                         for region in area.regions:
                             if region.type == 'WINDOW':
@@ -224,7 +230,7 @@ def check_snapshot_files(context):
         if not os.path.exists(item.filepath):
             context.scene.snapshot_list.remove(item)
 
-def draw_snapshot(area_id, region_width, region_height):
+def draw_snapshot(area_id, frame_width, frame_height, region_width, region_height):
     global snapshot_texture, visibility_state
     current_area = bpy.context.area
     if current_area and str(hash(current_area.as_pointer()) % 10000).zfill(4) == area_id:
@@ -244,11 +250,6 @@ def draw_snapshot(area_id, region_width, region_height):
             draw_width, draw_height = width, height
             opacity = bpy.context.scene.snapshot_opacity / 100.0
             slider_position = bpy.context.scene.slider_position
-            
-            # Ensure slider_position is not None
-            if slider_position is None:
-                slider_position = 0.5  # Default value
-            
             batch = batch_for_shader(shader, 'TRI_FAN', {"pos": ((draw_x + draw_width * (1 - slider_position), draw_y), (draw_x + draw_width, draw_y), (draw_x + draw_width, draw_y + draw_height), (draw_x + draw_width * (1 - slider_position), draw_y + draw_height)), "texCoord": ((1 - slider_position, 0), (1, 0), (1, 1), (1 - slider_position, 1))})
             gpu.state.blend_set('ALPHA')
             shader.bind()

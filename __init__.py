@@ -55,10 +55,10 @@ def register():
 
 def unregister():
     if bpy.context.preferences.addons[__name__].preferences.enable_fastFileViewer:
-        Snapshot.unregister()
+        FastFileViewer.unregister()
     if bpy.context.preferences.addons[__name__].preferences.enable_stool:
         STOOL.unregister()
-    FastFileViewer.unregister()
+    Snapshot.unregister()
     bpy.utils.unregister_class(MyAddonPreferences)
 
 if __name__ == "__main__":
