@@ -11,6 +11,7 @@ import bpy
 from . import Snapshot
 from . import STOOL
 from . import FastFileViewer
+from . import PSRtoComp
 # 定义一个布尔属性，用于控制是否启用STOOL插件
 
 def update_stool_enable(self, context):
@@ -47,6 +48,7 @@ class MyAddonPreferences(bpy.types.AddonPreferences):
 
 def register():
     bpy.utils.register_class(MyAddonPreferences)
+    PSRtoComp.register()
     Snapshot.register()
     if bpy.context.preferences.addons[__name__].preferences.enable_fastFileViewer:
         FastFileViewer.register()
@@ -59,6 +61,7 @@ def unregister():
     if bpy.context.preferences.addons[__name__].preferences.enable_stool:
         STOOL.unregister()
     Snapshot.unregister()
+    PSRtoComp.unregister()
     bpy.utils.unregister_class(MyAddonPreferences)
 
 if __name__ == "__main__":
