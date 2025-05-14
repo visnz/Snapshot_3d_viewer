@@ -20,6 +20,7 @@ class VIEW3D_PT_SnapshotPanel(bpy.types.Panel):
         layout.separator()
         layout.label(text="父子级操作")
         layout.operator("object.parent_to_empty_visn")
+        layout.operator("object.parent_to_empty_visn_individual")
         layout.operator("object.parent_to_empty_collection_visn")
         layout.operator("object.select_parent_visn")
         layout.operator("object.release_all_children_to_world_visn")
@@ -270,7 +271,60 @@ class P2E_Collection(Operator):
             o.select_set(False)
 
         return {'FINISHED'}
+    
+class P2E_individual(Operator):
+    bl_idname = "object.parent_to_empty_visn_individual"
+    bl_label = "所选物体 单独每个到父级"
+    bl_description = "所有所选物体，每个对象都创建一个保护父级"
+    bl_options = {"REGISTER", "UNDO"}
 
+    def execute(self, context):
+        objs = context.selected_objects
+        last_active_obj = context.view_layer.objects.active  # 获取最后一次选中的活跃对象
+
+        try:
+            bpy.ops.object.mode_set(mode='OBJECT')
+        except:
+            pass
+
+        # 为每个选中的物体创建一个独立的父级空物体
+        for obj in objs:
+            # 计算当前物体的位置
+            loc = obj.location.copy()
+            
+            # 创建空物体
+            bpy.ops.object.add(type='EMPTY', location=loc, rotation=obj.rotation_euler)
+            new_empty = context.object  # 获取新创建的空物体
+            
+            # 获取当前物体的集合
+            obj_collections = obj.users_collection
+            
+            # 将新创建的空物体添加到当前物体的集合中
+            try:
+                for collection in obj_collections:
+                    collection.objects.link(new_empty)
+                # 从当前活跃集合中移除新创建的空物体
+                context.collection.objects.unlink(new_empty)
+            except:
+                pass
+            
+            # 设置父级关系
+            new_empty.parent = obj.parent  # 继承原始物体的父级
+            
+            # 设置当前物体为新空物体的子物体
+            obj.select_set(True)
+            context.view_layer.objects.active = new_empty
+            bpy.ops.object.parent_no_inverse_set(keep_transform=True)
+            obj.select_set(False)
+        
+        # 恢复原始选择状态
+        for obj in objs:
+            obj.select_set(True)
+        if last_active_obj:
+            context.view_layer.objects.active = last_active_obj
+
+        return {'FINISHED'}
+    
 class P2E(Operator):
     bl_idname = "object.parent_to_empty_visn"
     bl_label = "所选物体 到父级"
@@ -499,7 +553,8 @@ allClass = [
     AddLightWithConstraint,
     SaveSelection,
     LoadSelection,
-    P2E,    
+    P2E,
+    P2E_individual,
 ]
 def register():
     for cls in allClass:
