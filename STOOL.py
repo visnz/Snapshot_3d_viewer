@@ -1,8 +1,10 @@
 import bpy
+import random
 import os
 import subprocess
 import platform
-from bpy.types import Operator
+from bpy.props import FloatProperty
+from bpy.types import Operator, PropertyGroup
 from gpu_extras.batch import batch_for_shader
 import json
 
@@ -16,9 +18,10 @@ class VIEW3D_PT_SnapshotPanel(bpy.types.Panel):
     
     def draw(self, context):
         layout = self.layout
+        scene = context.scene
         
         layout.separator()
-        layout.label(text="父子级操作")
+        layout.label(text="父子级")
         layout.operator("object.parent_to_empty_visn")
         layout.operator("object.parent_to_empty_visn_individual")
         layout.operator("object.parent_to_empty_collection_visn")
@@ -28,13 +31,17 @@ class VIEW3D_PT_SnapshotPanel(bpy.types.Panel):
         layout.operator("object.solo_pick_visn")
         
         layout.separator()
-        layout.label(text="搭建类操作")
+        layout.label(text="搭建类")
         layout.operator("object.fast_camera_visn")
         layout.operator("object.add_light_with_constraint")
         layout.operator("wm.open_project_folder_visn")
         layout.operator("object.save_selection_visn")
         layout.operator("object.load_selection_visn")
-
+        
+        layout.separator()
+        layout.label(text="动画类")
+        layout.operator("object.add_noise_anim", text="位置Wiggle（添加/更新Noise动画）")
+        
 ### STOOL 插件的类和操作 ###
 def centro(sel):
     x = sum(obj.location[0] for obj in sel) / len(sel)
@@ -460,6 +467,98 @@ class AddLightWithConstraint(bpy.types.Operator):
         self.report({'INFO'}, "灯光和约束已成功创建")
         return {'FINISHED'}
 
+##### ======= Wiggle的效果 =====================
+## 存储插件参数的类（不依赖Scene）
+class NoiseAnimSettings:
+    scale_min = 20.0
+    scale_max = 60.0
+    strength_min = 0.1
+    strength_max = 0.5
+    phase_min = 0.0
+    phase_max = 100.0
+
+# 操作类（核心逻辑）
+class OBJECT_OT_add_noise_anim(Operator):
+    bl_idname = "object.add_noise_anim"
+    bl_label = "Add/Update Noise Animation"
+    bl_description = "为选中对象的Location添加/更新Noise动画"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    # 定义UI参数（通过Operator的属性，而非Scene）
+    scale_min: FloatProperty(name="缩放", default=20.0, min=0.1, max=1000.0)
+    scale_max: FloatProperty(name="缩放", default=60.0, min=0.1, max=1000.0)
+    strength_min: FloatProperty(name="强度", default=0.1, min=0.0, max=10.0)
+    strength_max: FloatProperty(name="强度", default=0.5, min=0.0, max=10.0)
+    phase_min: FloatProperty(name="错位", default=0.0, min=0.0, max=1000.0)
+    phase_max: FloatProperty(name="错位", default=100.0, min=0.0, max=1000.0)
+
+    def execute(self, context):
+        # 检查参数合法性
+        if self.scale_min > self.scale_max:
+            self.report({'ERROR'}, "Scale Min 必须 ≤ Scale Max")
+            return {'CANCELLED'}
+        if self.strength_min > self.strength_max:
+            self.report({'ERROR'}, "Strength Min 必须 ≤ Strength Max")
+            return {'CANCELLED'}
+        if self.phase_min > self.phase_max:
+            self.report({'ERROR'}, "Phase Min 必须 ≤ Phase Max")
+            return {'CANCELLED'}
+
+        # 更新全局设置（保存参数到类变量）
+        NoiseAnimSettings.scale_min = self.scale_min
+        NoiseAnimSettings.scale_max = self.scale_max
+        NoiseAnimSettings.strength_min = self.strength_min
+        NoiseAnimSettings.strength_max = self.strength_max
+        NoiseAnimSettings.phase_min = self.phase_min
+        NoiseAnimSettings.phase_max = self.phase_max
+
+        # 处理选中的对象
+        selected_objects = context.selected_objects
+        if not selected_objects:
+            self.report({'WARNING'}, "未选中任何对象")
+            return {'CANCELLED'}
+
+        for obj in selected_objects:
+            if not obj.animation_data:
+                obj.animation_data_create()
+            
+            obj.keyframe_insert(data_path="location", frame=0)
+            
+            fcurves = obj.animation_data.action.fcurves
+            for axis in range(3):  # X/Y/Z
+                fcurve = fcurves.find("location", index=axis)
+                if not fcurve:
+                    fcurve = fcurves.new("location", index=axis)
+                
+                # 删除旧的NOISE修改器
+                for mod in fcurve.modifiers:
+                    if mod.type == 'NOISE':
+                        fcurve.modifiers.remove(mod)
+                
+                # 添加新的NOISE修改器
+                noise_mod = fcurve.modifiers.new('NOISE')
+                noise_mod.scale = random.uniform(self.scale_min, self.scale_max)
+                noise_mod.strength = random.uniform(self.strength_min, self.strength_max)
+                noise_mod.phase = random.uniform(self.phase_min, self.phase_max)
+                noise_mod.blend_in = 0
+                noise_mod.blend_out = 0
+
+        self.report({'INFO'}, f"已为 {len(selected_objects)} 个对象添加Noise动画")
+        return {'FINISHED'}
+
+    def invoke(self, context, event):
+        # 初始化对话框参数（从类变量加载上次的值）
+        self.scale_min = NoiseAnimSettings.scale_min
+        self.scale_max = NoiseAnimSettings.scale_max
+        self.strength_min = NoiseAnimSettings.strength_min
+        self.strength_max = NoiseAnimSettings.strength_max
+        self.phase_min = NoiseAnimSettings.phase_min
+        self.phase_max = NoiseAnimSettings.phase_max
+        return context.window_manager.invoke_props_dialog(self, width=300)
+    
+##### ======= Wiggle的效果 =====================
+
+
 ##### ======= 选择组的效果 =====================
 class SaveSelection(bpy.types.Operator):
     bl_idname = "object.save_selection_visn"
@@ -555,6 +654,8 @@ allClass = [
     LoadSelection,
     P2E,
     P2E_individual,
+    OBJECT_OT_add_noise_anim,
+    NoiseAnimSettings,
 ]
 def register():
     for cls in allClass:
