@@ -44,6 +44,9 @@ class VIEW3D_PT_SnapshotPanel(bpy.types.Panel):
         layout.separator()
         layout.label(text="动画类")
         layout.operator("object.add_noise_anim", text="位置Wiggle（添加/更新Noise动画）")
+        layout.operator("object.add_noise_anim_r",
+                        text="旋转Wiggle（添加/更新Noise动画）")
+        layout.operator("object.remove_all_animations_visn")
 
 ### STOOL 插件的类和操作 ###
 
@@ -585,6 +588,88 @@ class OBJECT_OT_add_noise_anim(Operator):
         self.phase_max = NoiseAnimSettings.phase_max
         return context.window_manager.invoke_props_dialog(self, width=300)
 
+
+class OBJECT_OT_add_noise_anim_R(Operator):
+    bl_idname = "object.add_noise_anim_r"
+    bl_label = "Add/Update Noise Animation(R)"
+    bl_description = "为选中对象的Rotation添加/更新Noise动画"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    # 定义UI参数（通过Operator的属性，而非Scene）
+    scale_min: FloatProperty(name="缩放", default=20.0, min=0.1, max=1000.0)
+    scale_max: FloatProperty(name="缩放", default=60.0, min=0.1, max=1000.0)
+    strength_min: FloatProperty(name="强度", default=0.1, min=0.0, max=10.0)
+    strength_max: FloatProperty(name="强度", default=0.5, min=0.0, max=10.0)
+    phase_min: FloatProperty(name="错位", default=0.0, min=0.0, max=1000.0)
+    phase_max: FloatProperty(name="错位", default=100.0, min=0.0, max=1000.0)
+
+    def execute(self, context):
+        # 检查参数合法性
+        if self.scale_min > self.scale_max:
+            self.report({'ERROR'}, "Scale Min 必须 ≤ Scale Max")
+            return {'CANCELLED'}
+        if self.strength_min > self.strength_max:
+            self.report({'ERROR'}, "Strength Min 必须 ≤ Strength Max")
+            return {'CANCELLED'}
+        if self.phase_min > self.phase_max:
+            self.report({'ERROR'}, "Phase Min 必须 ≤ Phase Max")
+            return {'CANCELLED'}
+
+        # 更新全局设置（保存参数到类变量）
+        NoiseAnimSettings.scale_min = self.scale_min
+        NoiseAnimSettings.scale_max = self.scale_max
+        NoiseAnimSettings.strength_min = self.strength_min
+        NoiseAnimSettings.strength_max = self.strength_max
+        NoiseAnimSettings.phase_min = self.phase_min
+        NoiseAnimSettings.phase_max = self.phase_max
+
+        # 处理选中的对象
+        selected_objects = context.selected_objects
+        if not selected_objects:
+            self.report({'WARNING'}, "未选中任何对象")
+            return {'CANCELLED'}
+
+        for obj in selected_objects:
+            if not obj.animation_data:
+                obj.animation_data_create()
+
+            obj.keyframe_insert(data_path="rotation", frame=0)
+
+            fcurves = obj.animation_data.action.fcurves
+            for axis in range(3):  # X/Y/Z
+                fcurve = fcurves.find("rotation", index=axis)
+                if not fcurve:
+                    fcurve = fcurves.new("rotation", index=axis)
+
+                # 删除旧的NOISE修改器
+                for mod in fcurve.modifiers:
+                    if mod.type == 'NOISE':
+                        fcurve.modifiers.remove(mod)
+
+                # 添加新的NOISE修改器
+                noise_mod = fcurve.modifiers.new('NOISE')
+                noise_mod.scale = random.uniform(
+                    self.scale_min, self.scale_max)
+                noise_mod.strength = random.uniform(
+                    self.strength_min, self.strength_max)
+                noise_mod.phase = random.uniform(
+                    self.phase_min, self.phase_max)
+                noise_mod.blend_in = 0
+                noise_mod.blend_out = 0
+
+        self.report({'INFO'}, f"已为 {len(selected_objects)} 个对象添加Noise动画")
+        return {'FINISHED'}
+
+    def invoke(self, context, event):
+        # 初始化对话框参数（从类变量加载上次的值）
+        self.scale_min = NoiseAnimSettings.scale_min
+        self.scale_max = NoiseAnimSettings.scale_max
+        self.strength_min = NoiseAnimSettings.strength_min
+        self.strength_max = NoiseAnimSettings.strength_max
+        self.phase_min = NoiseAnimSettings.phase_min
+        self.phase_max = NoiseAnimSettings.phase_max
+        return context.window_manager.invoke_props_dialog(self, width=300)
+
 # ======= Wiggle的效果 =====================
 
 
@@ -708,9 +793,45 @@ class RemoveUnusedMaterialSlots(bpy.types.Operator):
 
 # ======= remove_unused_slots的效果 =====================
 
+# ======= 删除动画 =====================
+
+
+class RemoveAllAnimations(bpy.types.Operator):
+    """Remove all animations from selected objects"""
+    bl_idname = "object.remove_all_animations_visn"
+    bl_label = "删除所选对象的动画"
+    bl_description = "删除所选对象的所有动画数据"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return context.selected_objects is not None
+
+    def execute(self, context):
+        processed_objects = 0
+
+        for obj in context.selected_objects:
+            # Remove animation data
+            if obj.animation_data:
+                obj.animation_data_clear()
+                processed_objects += 1
+
+            # Remove shape key animations if exists
+            if obj.data and hasattr(obj.data, 'shape_keys') and obj.data.shape_keys:
+                if obj.data.shape_keys.animation_data:
+                    obj.data.shape_keys.animation_data_clear()
+                    processed_objects += 1
+
+        self.report(
+            {'INFO'}, f"Removed animations from {processed_objects} objects")
+        return {'FINISHED'}
+# ======= 删除动画 =====================
+
 
 ### 注册类函数 ###
 allClass = [
+    OBJECT_OT_add_noise_anim_R,
+    RemoveAllAnimations,
     RemoveUnusedMaterialSlots,
     VIEW3D_PT_SnapshotPanel,
     FastCentreCamera,
