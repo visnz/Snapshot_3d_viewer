@@ -3,8 +3,7 @@ import random
 import os
 import subprocess
 import platform
-from bpy.props import FloatProperty, EnumProperty
-from bpy.types import Operator
+from bpy.props import FloatProperty, EnumProperty  # type: ignore
 import json
 
 ### 面板类函数 ###
@@ -12,7 +11,7 @@ import json
 
 class VIEW3D_PT_SnapshotPanel(bpy.types.Panel):
     bl_label = "SomeTools"
-    bl_idname = "VIEW3D_PT_snapshot_panel_SomeTools"
+    bl_idname = "view_snapshot_panel_sometools"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = 'Tool'
@@ -43,8 +42,6 @@ class VIEW3D_PT_SnapshotPanel(bpy.types.Panel):
         layout.separator()
         layout.label(text="动画类")
         layout.operator("object.add_noise_anim", text="Wiggle（添加/更新Noise）")
-        layout.operator("object.add_noise_anim_r",
-                        text="旋转Wiggle（添加/更新Noise动画）")
         layout.operator("object.remove_all_animations_visn")
 
 ### STOOL 插件的类和操作 ###
@@ -68,7 +65,7 @@ def get_children(my_object):
     return [ob for ob in bpy.data.objects if ob.parent == my_object]
 
 
-class FastCentreCamera(Operator):
+class FastCentreCamera(bpy.types.Operator):
     bl_idname = "object.fast_camera_visn"
     bl_label = "中心约束摄像机"
     bl_description = "创建一个以选择物体为目标点的，中心点+PSR锁定的的摄像机"
@@ -110,7 +107,7 @@ class FastCentreCamera(Operator):
         return {'FINISHED'}
 
 
-class SoloPick(Operator):
+class SoloPick(bpy.types.Operator):
     # 断开所选物体的所有父子级关系，捡出来放在世界层级，子级归更上一层父级管。
     bl_idname = "object.solo_pick_visn"
     bl_label = "拎出（断开父子级）"
@@ -148,7 +145,7 @@ class SoloPick(Operator):
         return {'FINISHED'}
 
 
-class SelectParent(Operator):
+class SelectParent(bpy.types.Operator):
     bl_idname = "object.select_parent_visn"
     bl_label = "选择所有父级"
     bl_description = "选择被选中对象的所有父级"
@@ -168,7 +165,7 @@ class SelectParent(Operator):
         return {'FINISHED'}
 
 
-class RAQ(Operator):
+class RAQ(bpy.types.Operator):
     bl_idname = "object.release_all_children_to_world_visn"
     bl_label = "释放子对象（到世界）"
     bl_description = "释放子对象（到世界）"
@@ -190,7 +187,7 @@ class RAQ(Operator):
         return {'FINISHED'}
 
 
-class RAQtoSubparent(Operator):
+class RAQtoSubparent(bpy.types.Operator):
     bl_idname = "object.release_all_children_to_subparent_visn"
     bl_label = "释放子对象（到上级）"
     bl_description = "释放子对象（到上级）"
@@ -226,7 +223,7 @@ class RAQtoSubparent(Operator):
         return {'FINISHED'}
 
 
-class P2E_Collection(Operator):
+class P2E_Collection(bpy.types.Operator):
     bl_idname = "object.parent_to_empty_collection_visn"
     bl_label = "所选物体 到新集合"
     bl_description = "所有选择的物体到新父级，并送入新集合"
@@ -298,7 +295,7 @@ class P2E_Collection(Operator):
         return {'FINISHED'}
 
 
-class P2E_individual(Operator):
+class P2E_individual(bpy.types.Operator):
     bl_idname = "object.parent_to_empty_visn_individual"
     bl_label = "所选物体 单独每个到父级"
     bl_description = "所有所选物体，每个对象都创建一个保护父级"
@@ -353,7 +350,7 @@ class P2E_individual(Operator):
         return {'FINISHED'}
 
 
-class P2E(Operator):
+class P2E(bpy.types.Operator):
     bl_idname = "object.parent_to_empty_visn"
     bl_label = "所选物体 到父级"
     bl_description = "所有所选物体到父级"
@@ -495,7 +492,11 @@ class AddLightWithConstraint(bpy.types.Operator):
 # 存储插件参数的类（不依赖Scene）
 
 
-class NoiseAnimSettings:
+class NoiseAnimSettings(bpy.types.Operator):
+    bl_idname = "object.noise_anim_settings"
+    bl_label = "Noise Animation Settings"
+    bl_description = "存储Noise动画参数"
+    # 这些参数会在插件运行时被更新
     scale_min = 20.0
     scale_max = 60.0
     strength_min = 0.1
@@ -505,19 +506,25 @@ class NoiseAnimSettings:
     target_property: str = "LOCATION"  # 默认目标属性
 
 
-class OBJECT_OT_add_noise_anim(Operator):
+class OBJECT_OT_add_noise_anim(bpy.types.Operator):
     bl_idname = "object.add_noise_anim"
     bl_label = "Add/Update Noise Animation"
     bl_description = "为选中对象的Location/Rotation/Scale添加/更新Noise动画"
     bl_options = {'REGISTER', 'UNDO'}
 
     # 定义UI参数
-    scale_min: FloatProperty(name="缩放", default=20.0, min=0.1, max=1000.0)
-    scale_max: FloatProperty(name="缩放", default=60.0, min=0.1, max=1000.0)
-    strength_min: FloatProperty(name="强度", default=0.1, min=0.0, max=10.0)
-    strength_max: FloatProperty(name="强度", default=0.5, min=0.0, max=10.0)
-    phase_min: FloatProperty(name="错位", default=0.0, min=0.0, max=1000.0)
-    phase_max: FloatProperty(name="错位", default=100.0, min=0.0, max=1000.0)
+    scale_min: FloatProperty(name="缩放", default=20.0,
+                             min=0.1, max=1000.0)  # type: ignore
+    scale_max: FloatProperty(name="缩放", default=60.0,
+                             min=0.1, max=1000.0)  # type: ignore
+    strength_min: FloatProperty(
+        name="强度", default=0.1, min=0.0, max=10.0)  # type: ignore
+    strength_max: FloatProperty(
+        name="强度", default=0.5, min=0.0, max=10.0)  # type: ignore
+    phase_min: FloatProperty(name="错位", default=0.0,
+                             min=0.0, max=1000.0)  # type: ignore
+    phase_max: FloatProperty(name="错位", default=100.0,
+                             min=0.0, max=1000.0)  # type: ignore
 
     target_property: EnumProperty(
         name="目标属性",
@@ -527,7 +534,7 @@ class OBJECT_OT_add_noise_anim(Operator):
             ('SCALE', "缩放 (Scale)", "在物体的缩放 (XYZ) 上添加 Noise"),
         ],
         default='LOCATION'
-    )
+    )  # type: ignore
 
     def execute(self, context):
         # 检查参数合法性
