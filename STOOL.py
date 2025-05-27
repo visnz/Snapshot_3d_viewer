@@ -5,6 +5,7 @@ import subprocess
 import platform
 from bpy.props import FloatProperty, EnumProperty  # type: ignore
 import json
+from mathutils import Matrix
 
 ### 面板类函数 ###
 
@@ -26,13 +27,14 @@ class VIEW3D_PT_SnapshotPanel(bpy.types.Panel):
         layout.operator("object.parent_to_empty_visn_individual")
         layout.operator("object.parent_to_empty_collection_visn")
         layout.operator("object.select_parent_visn")
-        layout.operator("object.release_all_children_to_world_visn")
         layout.operator("object.release_all_children_to_subparent_visn")
         layout.operator("object.solo_pick_visn")
+        layout.operator("object.solo_pick_delete_visn")
 
         layout.separator()
         layout.label(text="搭建类")
         layout.operator("object.fast_camera_visn")
+        layout.operator("object.cspzt_camera_visn")
         layout.operator("object.add_light_with_constraint")
         layout.operator("wm.open_project_folder_visn")
         layout.operator("object.save_selection_visn")
@@ -67,7 +69,7 @@ def get_children(my_object):
 
 class FastCentreCamera(bpy.types.Operator):
     bl_idname = "object.fast_camera_visn"
-    bl_label = "中心约束摄像机"
+    bl_label = "C-P摄像机组"
     bl_description = "创建一个以选择物体为目标点的，中心点+PSR锁定的的摄像机"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -79,13 +81,13 @@ class FastCentreCamera(bpy.types.Operator):
         # 创建摄像机
         bpy.ops.object.camera_add(enter_editmode=False, align='VIEW', location=(
             0, 0, 0), rotation=(0, 0, 0), scale=(1, 1, 1))
-        bpy.context.active_object.name = 'NewCamera'
+        bpy.context.active_object.name = 'Camera'
         cams = context.selected_objects
         bpy.context.space_data.camera = cams[0]
         bpy.ops.view3d.camera_to_view()
         bpy.ops.object.add(
             type='EMPTY', location=cams[0].location, rotation=cams[0].rotation_euler)
-        bpy.context.active_object.name = 'CameraProtection'
+        bpy.context.active_object.name = 'Camera Protection'
         bpy.ops.object.constraint_add(type='DAMPED_TRACK')
         camP = context.selected_objects
         cams[0].select_set(True)
@@ -95,7 +97,7 @@ class FastCentreCamera(bpy.types.Operator):
 
         # 创建原点的空物体
         bpy.ops.object.add(type='EMPTY', location=loc)
-        bpy.context.active_object.name = 'CameraCentre'
+        bpy.context.active_object.name = 'Camera Central'
         camC = context.selected_objects
         camP[0].select_set(True)
         bpy.ops.object.parent_no_inverse_set(keep_transform=True)
@@ -107,10 +109,95 @@ class FastCentreCamera(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class CSPZT_Camera(bpy.types.Operator):
+    bl_idname = "object.cspzt_camera_visn"
+    bl_label = "C-SP-ZT朝向摄像机组"
+    bl_description = "创建包含Central、Stare、Protection、Target和Zup的复杂摄像机组"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        # 获取创建点
+        objs = context.selected_objects
+        loc = centro_global(objs) if objs else (0, 0, 0)
+        # 获取当前视图的摄像机位置和旋转
+        view_matrix = context.space_data.region_3d.view_matrix
+        cam_location = view_matrix.inverted().translation
+        cam_rotation = view_matrix.to_3x3().inverted().to_euler()
+
+        # 创建Cam_Central--↑ (根空物体)
+        bpy.ops.object.add(type='EMPTY', location=loc)
+        central = context.active_object
+        central.name = 'Cam_Central--↑（向上添加目标点运动）'
+        central.rotation_euler = cam_rotation
+
+        # 创建Cam_Zup (世界空间，不设为任何物体的子级)
+        bpy.ops.object.add(type='EMPTY', location=(0, 0, 100000))
+        zup = context.active_object
+        zup.name = 'Cam_Zup'
+
+        # 创建Cam_Stare (作为Central的子对象)
+        bpy.ops.object.add(type='EMPTY', location=cam_location)
+        stare = context.active_object
+        stare.name = 'Cam_Stare--↑（向上添加摄像机运动）'
+        stare.parent = central
+        # stare.location = (0, 0, 0)  # PSR=0
+
+        # 添加约束到Stare
+        # Damped Track指向Central, 轴为-Z
+        damped_track = stare.constraints.new('DAMPED_TRACK')
+        damped_track.target = central
+        damped_track.track_axis = 'TRACK_NEGATIVE_Z'
+
+        # Locked Track指向Zup, 跟踪Y轴, 锁定Z轴
+        locked_track = stare.constraints.new('LOCKED_TRACK')
+        locked_track.target = zup
+        locked_track.track_axis = 'TRACK_Y'
+        locked_track.lock_axis = 'LOCK_Z'
+
+        # 创建Cam_Protection--↑ (作为Stare的子对象)
+        bpy.ops.object.add(type='EMPTY', location=(0, 0, 0))
+        protection = context.active_object
+        protection.name = 'Cam_Protection--↑（向上添加局部空间运动）'
+        protection.parent = stare
+        protection.location = (0, 0, 0)  # PSR=0
+        protection.rotation_euler = (0, 0, 0)
+        protection.scale = (1, 1, 1)
+
+        # 创建Cam_DOFTarget (作为Protection的子对象)
+        bpy.ops.object.add(type='EMPTY', location=(0, 0, -1))  # 初始Z=-1
+        dof_target = context.active_object
+        dof_target.name = 'Cam_DOFTarget'
+        dof_target.parent = protection
+        dof_target.lock_location = (True, True, False)  # 仅Z轴可移动
+        dof_target.lock_rotation = (True, True, True)  # 全锁定
+        dof_target.lock_scale = (True, True, True)  # 全锁定
+
+        # 创建摄像机 (作为Protection的子对象)
+        bpy.ops.object.camera_add(enter_editmode=False, location=(0, 0, 0))
+        cam = context.active_object
+        cam.name = 'Cam'
+        cam.parent = protection
+        cam.location = (0, 0, 0)  # PSR=0
+        cam.rotation_euler = (0, 0, 0)
+        cam.lock_location = (True, True, True)
+        cam.lock_rotation = (True, True, True)
+        cam.lock_scale = (True, True, True)
+
+        # 启用景深并设置焦点目标
+        cam.data.dof.use_dof = True
+        cam.data.dof.focus_object = dof_target
+
+        # 设置当前视图的相机并进入摄像机视图
+        context.space_data.camera = cam
+        bpy.ops.view3d.view_camera()
+
+        return {'FINISHED'}
+
+
 class SoloPick(bpy.types.Operator):
     # 断开所选物体的所有父子级关系，捡出来放在世界层级，子级归更上一层父级管。
     bl_idname = "object.solo_pick_visn"
-    bl_label = "拎出（断开父子级）"
+    bl_label = "拎出"
     bl_description = "断开所有选择物体的父子级"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -165,10 +252,10 @@ class SelectParent(bpy.types.Operator):
         return {'FINISHED'}
 
 
-class RAQ(bpy.types.Operator):
-    bl_idname = "object.release_all_children_to_world_visn"
-    bl_label = "释放子对象（到世界）"
-    bl_description = "释放子对象（到世界）"
+class SoloPick_delete(bpy.types.Operator):
+    bl_idname = "object.solo_pick_delete_visn"
+    bl_label = "拎出并删除"
+    bl_description = "删除选中物体（不含父子级）"
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
@@ -177,19 +264,35 @@ class RAQ(bpy.types.Operator):
             bpy.ops.object.mode_set()
         except:
             pass
+
         for obj in objs:
             obj.select_set(False)
         for obj in objs:
-            for children in get_children(obj):
-                children.select_set(True)
-                bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
-                children.select_set(False)
+            if not obj.parent:
+                for children in get_children(obj):
+                    children.select_set(True)
+                    bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
+                    children.select_set(False)
+            else:
+                for children in get_children(obj):
+                    children.select_set(True)
+                    bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
+                    bpy.context.view_layer.objects.active = obj.parent
+                    bpy.ops.object.parent_no_inverse_set(keep_transform=True)
+                    children.select_set(False)
+        for obj in objs:
+            obj.select_set(True)
+            bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
+            obj.select_set(False)
+        for obj in objs:
+            obj.select_set(True)
+        bpy.ops.object.delete(use_global=False)
         return {'FINISHED'}
 
 
 class RAQtoSubparent(bpy.types.Operator):
     bl_idname = "object.release_all_children_to_subparent_visn"
-    bl_label = "释放子对象（到上级）"
+    bl_label = "释放到上级"
     bl_description = "释放子对象（到上级）"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -782,9 +885,10 @@ allClass = [
     RemoveUnusedMaterialSlots,
     VIEW3D_PT_SnapshotPanel,
     FastCentreCamera,
+    CSPZT_Camera,
     SoloPick,
+    SoloPick_delete,
     SelectParent,
-    RAQ,
     RAQtoSubparent,
     P2E_Collection,
     OpenProjectFolderOperator,
