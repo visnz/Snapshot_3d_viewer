@@ -24,7 +24,6 @@ class VIEW3D_PT_SnapshotPanel(bpy.types.Panel):
         layout.label(text="父子级")
         layout.operator("object.parent_to_empty_visn")
         layout.operator("object.parent_to_empty_visn_individual")
-        layout.operator("object.parent_to_empty_collection_visn")
         layout.operator("object.select_parent_visn")
         layout.operator("object.release_all_children_to_subparent_visn")
         layout.operator("object.solo_pick_visn")
@@ -323,78 +322,6 @@ class RAQtoSubparent(bpy.types.Operator):
             for obj in objs:
                 bpy.context.view_layer.objects.active = obj.parent
                 obj.parent.select_set(True)
-        return {'FINISHED'}
-
-
-class P2E_Collection(bpy.types.Operator):
-    bl_idname = "object.parent_to_empty_collection_visn"
-    bl_label = "所选物体 到新集合"
-    bl_description = "所有选择的物体到新父级，并送入新集合"
-    bl_options = {"REGISTER", "UNDO"}
-
-    def execute(self, context):
-        def move_to_collection(obj, collection):
-            # 递归地将对象及其所有子对象移动到指定集合中
-            # 首先将对象从其所有集合中移除
-            for coll in obj.users_collection:
-                coll.objects.unlink(obj)
-            # 将对象添加到新集合中
-            collection.objects.link(obj)
-            # 递归地处理子对象
-            for child in obj.children:
-                move_to_collection(child, collection)
-
-        objs = context.selected_objects
-        try:
-            bpy.ops.object.mode_set(mode='OBJECT')
-        except:
-            pass
-
-        # 获取所有选中对象的中心位置
-        loc = centro(objs)
-        same_parent = all(o.parent == objs[0].parent for o in objs)
-
-        # 创建一个新的集合
-        new_collection = bpy.data.collections.new(name="New Collection")
-        context.scene.collection.children.link(new_collection)
-
-        # 将新集合设置为活跃集合
-        layer_collection = context.view_layer.layer_collection
-        for layer in layer_collection.children:
-            if layer.collection == new_collection:
-                context.view_layer.active_layer_collection = layer
-
-        # 创建一个新的空对象并设置位置
-        bpy.ops.object.select_all(action='DESELECT')
-        if len(objs) == 1:
-            bpy.ops.object.add(type='EMPTY', location=loc,
-                               rotation=objs[0].rotation_euler)
-        else:
-            bpy.ops.object.add(type='EMPTY', location=loc)
-
-        new_empty = context.object
-
-        # 如果所有选中对象有相同的父级，则将新空对象设置为该父级的子级
-        if same_parent:
-            new_empty.parent = objs[0].parent
-
-        # 将新空对象添加到新集合中
-        try:
-            new_collection.objects.link(new_empty)
-        except:
-            pass
-
-        # 确保新空对象在当前视图层中
-        context.view_layer.objects.active = new_empty
-
-        # 遍历所有选中对象并递归地将它们及其子对象移动到新集合中
-        for o in objs:
-            move_to_collection(o, new_collection)
-            # 设置父级
-            o.select_set(True)
-            bpy.ops.object.parent_no_inverse_set(keep_transform=True)
-            o.select_set(False)
-
         return {'FINISHED'}
 
 
@@ -889,37 +816,47 @@ bpy.types.Scene.children_select_state = bpy.props.BoolProperty(
 
 class ToggleChildrenSelectability(bpy.types.Operator):
     bl_idname = "object.toggle_children_selectability_visn"
-    bl_label = "子对象封包"
+    bl_label = "子对象 封包/解包"
     bl_description = "将对象的子级内容全部可选性切换（开启或关闭）"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        # 获取当前场景的状态
         current_state = context.scene.children_select_state
+        selected_objs = context.selected_objects.copy()  # 复制当前选择
 
         # 递归设置所有子级的可选性
         def set_children_selectability(obj, state):
             for child in obj.children:
-                child.hide_select = state  # True=不可选, False=可选
+                child.hide_select = state
                 set_children_selectability(child, state)
 
-        # 对每个选中的对象进行操作
-        for obj in context.selected_objects:
+        # 处理每个选中的对象
+        for obj in selected_objs:
             set_children_selectability(obj, not current_state)
 
         # 切换并存储新状态
         context.scene.children_select_state = not current_state
 
-        # 显示正确的操作反馈（修复了编码问题）
+        if current_state:
+            bpy.ops.object.select_all(action='DESELECT')
+            for obj in selected_objs:
+                obj.select_set(True)
+                self.select_hierarchy(obj)
+
+        # 操作反馈
         state = "关闭" if current_state else "开启"
         self.report({'INFO'}, f"子级选择性已{state}")
 
-        # 强制界面刷新
-        for area in context.screen.areas:
-            if area.type == 'VIEW_3D':
-                area.tag_redraw()
+        # 刷新界面
+        context.area.tag_redraw()
 
         return {'FINISHED'}
+
+    def select_hierarchy(self, obj):
+        """递归选择对象及其所有子级"""
+        for child in obj.children:
+            child.select_set(True)
+            self.select_hierarchy(child)
 # ======= 子级可选性 =====================
 
 
@@ -935,7 +872,6 @@ allClass = [
     SoloPick_delete,
     SelectParent,
     RAQtoSubparent,
-    P2E_Collection,
     OpenProjectFolderOperator,
     AddLightWithConstraint,
     SaveSelection,
