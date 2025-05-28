@@ -5,7 +5,6 @@ import subprocess
 import platform
 from bpy.props import FloatProperty, EnumProperty  # type: ignore
 import json
-from mathutils import Matrix
 
 ### 面板类函数 ###
 
@@ -40,6 +39,7 @@ class VIEW3D_PT_SnapshotPanel(bpy.types.Panel):
         layout.operator("object.save_selection_visn")
         layout.operator("object.load_selection_visn")
         layout.operator("object.remove_unused_material_slots_visn")
+        layout.operator("object.toggle_children_selectability_visn")
 
         layout.separator()
         layout.label(text="动画类")
@@ -879,8 +879,53 @@ class RemoveAllAnimations(bpy.types.Operator):
 # ======= 删除动画 =====================
 
 
+# ======= 子级可选性 =====================
+# 使用Blender的属性系统来持久化存储状态
+bpy.types.Scene.children_select_state = bpy.props.BoolProperty(
+    name="Children Select State",
+    default=False
+)
+
+
+class ToggleChildrenSelectability(bpy.types.Operator):
+    bl_idname = "object.toggle_children_selectability_visn"
+    bl_label = "子对象封包"
+    bl_description = "将对象的子级内容全部可选性切换（开启或关闭）"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        # 获取当前场景的状态
+        current_state = context.scene.children_select_state
+
+        # 递归设置所有子级的可选性
+        def set_children_selectability(obj, state):
+            for child in obj.children:
+                child.hide_select = state  # True=不可选, False=可选
+                set_children_selectability(child, state)
+
+        # 对每个选中的对象进行操作
+        for obj in context.selected_objects:
+            set_children_selectability(obj, not current_state)
+
+        # 切换并存储新状态
+        context.scene.children_select_state = not current_state
+
+        # 显示正确的操作反馈（修复了编码问题）
+        state = "关闭" if current_state else "开启"
+        self.report({'INFO'}, f"子级选择性已{state}")
+
+        # 强制界面刷新
+        for area in context.screen.areas:
+            if area.type == 'VIEW_3D':
+                area.tag_redraw()
+
+        return {'FINISHED'}
+# ======= 子级可选性 =====================
+
+
 ### 注册类函数 ###
 allClass = [
+    ToggleChildrenSelectability,
     RemoveAllAnimations,
     RemoveUnusedMaterialSlots,
     VIEW3D_PT_SnapshotPanel,
