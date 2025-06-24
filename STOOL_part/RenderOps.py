@@ -20,8 +20,10 @@ class RenderPresetSettings(PropertyGroup):
         name="Frame Start", default=0, min=0)  # type: ignore
     frame_end: IntProperty(name="Frame End", default=100,
                            min=0)  # type: ignore
+    frame_step: IntProperty(name="Frame Step", default=1,
+                            min=1)  # type: ignore
     relative_path: StringProperty(  # type: ignore
-        name="Relative Path", subtype='DIR_PATH', default="\\__Cache__\\")
+        name="Relative Path", subtype='DIR_PATH', default="//__Cache__\\")
     absolute_path: StringProperty(  # type: ignore
         name="Absolute Path", subtype='DIR_PATH', default="F:\\__Cache__\\")
     use_absolute_path: BoolProperty(  # type: ignore
@@ -66,43 +68,31 @@ class RENDER_OT_create_presets(Operator):
         props = context.scene.render_preset_settings
         render = context.scene.render
 
-        # 创建预设对象（按数字顺序）
+        # Create preset objects with frame step support
         presets = [
-            ('1. HD    ',
-             f"[xy={props.resolution_x}x{props.resolution_y}, sp={props.samples}, Rng={props.frame_start}-{props.frame_end}]"),
-            ('2. Style ', f"[xy=100%, sp=100%, Rng=50]"),
-            ('3. prev  ', f"[xy=100%, sp=10%, Rng=0-100]"),
-            ('4. demo  ', f"[xy=50%, sp=30%, Rng=100%]"),
+            ('1. HD    ', f"[xy={props.resolution_x}x{props.resolution_y}, sp={props.samples}, Rng={props.frame_start}-{props.frame_end}@{props.frame_step}]"),
+            ('2. Style ', f"[xy=100%, sp=100%, Rng=20-100@80]"),
+            ('3. prev  ', f"[xy=100%, sp=10%, Rng=0-100@1]"),
+            ('4. demo  ', f"[xy=50%, sp=30%, Rng=100%@1]"),
             ('5. folder',
              f"[\"{props.relative_path}\",\"{props.absolute_path}\"]")
         ]
 
-        # 创建空对象
         for preset_name, params in presets:
-            empty = bpy.data.objects.new(preset_name, None)  # 直接创建空对象
-            if cam_coll:
-                cam_coll.objects.link(empty)
-            else:
-                context.scene.collection.objects.link(empty)
-
-            # 设置父级（确保不是设置自身为父级）
+            empty = bpy.data.objects.new(preset_name, None)
+            cam_coll.objects.link(empty)
             if empty != cam:
                 empty.parent = cam
             empty.name = f"{preset_name}:{params}"
 
-        # 创建当前设置显示对象
+        # Create current settings display
         current_empty = bpy.data.objects.new("Current", None)
-        if cam_coll:
-            cam_coll.objects.link(current_empty)
-        else:
-            context.scene.collection.objects.link(current_empty)
-
-        # 设置父级（确保不是设置自身为父级）
+        cam_coll.objects.link(current_empty)
         if current_empty != cam:
             current_empty.parent = cam
 
-        # 立即更新显示
-            bpy.ops.render.apply_preset(preset_type='HD')
+        # Apply HD preset by default
+        bpy.ops.render.apply_preset(preset_type='HD')
         update_current_settings_display(cam, context.scene)
 
         self.report({'INFO'}, "预设对象已创建")
@@ -118,7 +108,6 @@ class RENDER_OT_create_presets(Operator):
         props = context.scene.render_preset_settings
         render = context.scene.render
 
-        # 使用当前渲染设置初始化值
         props.resolution_x = render.resolution_x
         props.resolution_y = render.resolution_y
 
@@ -129,6 +118,11 @@ class RENDER_OT_create_presets(Operator):
 
         props.frame_start = context.scene.frame_start
         props.frame_end = context.scene.frame_end
+        props.frame_step = context.scene.frame_step
+
+        # Ensure relative path starts with //
+        if not props.relative_path.startswith("//"):
+            props.relative_path = "//" + props.relative_path.lstrip("/\\")
 
         return context.window_manager.invoke_props_dialog(self, width=400)
 
@@ -136,7 +130,7 @@ class RENDER_OT_create_presets(Operator):
         layout = self.layout
         props = context.scene.render_preset_settings
 
-        # 分辨率设置
+        # Resolution
         col = layout.column(align=True)
         col.label(text="最终渲染设置 (Final):")
         row = col.row(align=True)
@@ -154,11 +148,15 @@ class RENDER_OT_create_presets(Operator):
         row = col.row(align=True)
         row.prop(props, "frame_start", text="开始")
         row.prop(props, "frame_end", text="结束")
+        layout.separator()
+        layout.label(text="帧步长:")
+        layout.prop(props, "frame_step", text="步长")
 
-        # 路径设置 - 修改后的版本
+        # Paths
         layout.separator()
         layout.prop(props, "absolute_path", text="绝对路径")
-        layout.prop(props, "relative_path", text="相对路径")
+        layout.prop(props, "relative_path",
+                    text="相对路径 (必须以 // 开头)")
 
 
 class RENDER_OT_apply_preset(Operator):
@@ -196,7 +194,6 @@ class RENDER_OT_apply_preset(Operator):
 
         for child in cam.children:
             if ':' in child.name:
-                # 移除数字前缀和空格
                 preset_name = re.sub(
                     r'^\d+\.\s*', '', child.name.split(':', 1)[0].strip().lower())
                 params = self.parse_preset_params(child.name.split(':', 1)[1])
@@ -212,29 +209,28 @@ class RENDER_OT_apply_preset(Operator):
             self.report({'ERROR'}, f"找不到 {self.preset_type} 预设")
             return {'CANCELLED'}
 
-        scenes = [context.scene]  # if not self.all_scenes else bpy.data.scenes
+        render = context.scene.render
+        cycles = context.scene.cycles if hasattr(
+            context.scene, 'cycles') else None
+        eevee = context.scene.eevee if hasattr(
+            context.scene, 'eevee') else None
 
-        for scene in scenes:
-            render = scene.render
-            cycles = scene.cycles if hasattr(scene, 'cycles') else None
-            eevee = scene.eevee if hasattr(scene, 'eevee') else None
+        # Update output path
+        if folder_params:
+            self.update_output_path(
+                render, context.scene, folder_params, self.preset_type.lower())
 
-            # 更新输出路径
-            if folder_params:
-                use_absolute = scene.render_preset_settings.absolute_path.strip() != ""
-                self.update_output_path(
-                    render, scene, folder_params, self.preset_type.lower())
+        # Apply settings
+        if self.preset_type.lower() == 'hd':
+            self.apply_hd_settings(render, context.scene,
+                                   cycles, eevee, hd_params)
+        else:
+            self.apply_preset_settings(
+                render, context.scene, cycles, eevee, presets[self.preset_type.lower()], hd_params)
 
-            # 应用预设设置
-            if self.preset_type.lower() == 'hd':
-                self.apply_hd_settings(render, scene, cycles, eevee, hd_params)
-            else:
-                self.apply_preset_settings(
-                    render, scene, cycles, eevee, presets[self.preset_type.lower()], hd_params)
-
-            # 更新当前设置显示对象
-            update_current_settings_display(
-                cam, context.scene, self.preset_type.lower())
+        # Update display
+        update_current_settings_display(
+            cam, context.scene, self.preset_type.lower())
 
         self.report({'INFO'}, f"已应用 {self.preset_type} 预设")
         return {'FINISHED'}
@@ -249,13 +245,16 @@ class RENDER_OT_apply_preset(Operator):
         if not base_path:
             return
 
-        # 构建标准路径结构
         render_dir = f"Render_{preset_type}"
         scene_dir = f"{scene.name}_{preset_type}"
-        filename = f"{scene.name}_{preset_type}"
+        filename = f"{scene.name}_{preset_type}_"  # Added trailing underscore
 
         render.filepath = f"{base_path}/{render_dir}/{scene_dir}/{filename}".replace(
             '//', '/')
+
+        # Ensure relative paths start with //
+        if path_key == "relative" and not render.filepath.startswith("//"):
+            render.filepath = "//" + render.filepath.lstrip("/\\")
 
     def apply_hd_settings(self, render, scene, cycles, eevee, params):
         """应用HD预设设置"""
@@ -281,11 +280,31 @@ class RENDER_OT_apply_preset(Operator):
                 pass
 
         if 'rng' in params:
-            if '-' in params['rng']:
+            range_str = params['rng']
+            # Handle frame step (format: start-end@step or single@step)
+            if '@' in range_str:
+                range_part, step_part = range_str.split('@', 1)
                 try:
-                    start, end = map(int, params['rng'].split('-'))
+                    scene.frame_step = int(step_part)
+                except ValueError:
+                    scene.frame_step = 1
+            else:
+                range_part = range_str
+                scene.frame_step = 1
+
+            # Handle range
+            if '-' in range_part:
+                try:
+                    start, end = map(int, range_part.split('-'))
                     scene.frame_start = start
                     scene.frame_end = end
+                except ValueError:
+                    pass
+            else:  # Single frame
+                try:
+                    frame = int(range_part)
+                    scene.frame_start = frame
+                    scene.frame_end = frame
                 except ValueError:
                     pass
 
@@ -322,21 +341,35 @@ class RENDER_OT_apply_preset(Operator):
         # 帧范围设置
         if 'rng' in params:
             range_val = params['rng']
-            if '%' in range_val:  # 使用HD的范围
-                if '-' in hd_params.get('rng', '0-100'):
-                    start, end = map(int, hd_params['rng'].split('-'))
+
+            # Handle frame step
+            if '@' in range_val:
+                range_part, step_part = range_val.split('@', 1)
+                try:
+                    scene.frame_step = int(step_part)
+                except ValueError:
+                    scene.frame_step = 1
+            else:
+                range_part = range_val
+                scene.frame_step = 1
+
+            # Handle range
+            if '%' in range_part:  # Use HD range
+                if '-' in hd_params.get('rng', '0-100').split('@')[0]:
+                    hd_range = hd_params['rng'].split('@')[0]
+                    start, end = map(int, hd_range.split('-'))
                     scene.frame_start = start
                     scene.frame_end = end
-            elif '-' in range_val:  # 自定义范围
+            elif '-' in range_part:  # Custom range
                 try:
-                    start, end = map(int, range_val.split('-'))
+                    start, end = map(int, range_part.split('-'))
                     scene.frame_start = start
                     scene.frame_end = end
                 except ValueError:
                     pass
-            else:  # 单帧
+            else:  # Single frame
                 try:
-                    frame = int(range_val)
+                    frame = int(range_part)
                     scene.frame_start = frame
                     scene.frame_end = frame
                 except ValueError:
@@ -347,11 +380,7 @@ class RENDER_OT_apply_preset(Operator):
         params = {}
         bracket_content = param_str.split(']')[0].split('[')[-1].strip()
 
-        # 特别处理folder对象的路径格式
-        if bracket_content.startswith('"') and bracket_content.endswith('"'):
-            bracket_content = bracket_content[1:-1]  # 移除外部的双引号
-
-        if '"' in bracket_content:  # 处理路径格式
+        if '"' in bracket_content:  # Path format
             paths = [p.strip().strip('"') for p in bracket_content.split(',')]
             if len(paths) >= 2:
                 params["relative"] = paths[0]
@@ -413,26 +442,17 @@ def update_current_settings_display(cam, scene, preset_name="HD"):
     # 如果不存在则创建
     if not current_obj:
         current_obj = bpy.data.objects.new("Current", None)
-        if cam_coll:
-            cam_coll.objects.link(current_obj)
-        else:
-            scene.collection.objects.link(current_obj)
-
-        # 设置父级（确保不是设置自身为父级）
+        cam_coll.objects.link(current_obj)
         if current_obj != cam:
             current_obj.parent = cam
-
-    # 如果存在多个，则删除多余的
     elif sum(1 for child in cam.children if child.name.startswith("Current")) > 1:
-        # 保留第一个，删除其余的
-        to_delete = [child for child in cam.children if child.name.startswith(
-            "Current")][1:]
+        to_delete = [
+            child for child in cam.children if child.name.startswith("Current")][1:]
         for obj in to_delete:
-            # 从所有集合中移除对象
             for coll in bpy.data.collections:
                 if obj.name in coll.objects:
                     coll.objects.unlink(obj)
             bpy.data.objects.remove(obj, do_unlink=True)
 
     # 更新对象名称显示当前设置
-    current_obj.name = f"Current: {preset_name} [xy={render.resolution_x}x{render.resolution_y}@{render.resolution_percentage}%, sp={current_samples}, Rng={scene.frame_start}-{scene.frame_end}, {path_type}]"
+    current_obj.name = f"Current: {preset_name} [xy={render.resolution_x}x{render.resolution_y}@{render.resolution_percentage}%, sp={current_samples}, Rng={scene.frame_start}-{scene.frame_end}@{scene.frame_step}, {path_type}]"
