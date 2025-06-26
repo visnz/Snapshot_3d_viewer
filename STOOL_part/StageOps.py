@@ -138,7 +138,7 @@ class CSPZT_Camera(bpy.types.Operator):
 class OpenProjectFolderOperator(bpy.types.Operator):
     # 打开当前工程所在的文件夹
     bl_idname = "wm.open_project_folder_visn"
-    bl_label = "打开工程文件夹"
+    bl_label = "打开工程所在文件夹"
     bl_options = {'REGISTER'}
 
     def execute(self, context):

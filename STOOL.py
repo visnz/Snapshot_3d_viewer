@@ -3,7 +3,7 @@ import bpy  # type: ignore
 from .STOOL_part.ParentsOps import SoloPick, SoloPick_delete, P2E, P2E_individual, SelectParent, RAQtoSubparent
 from .STOOL_part.StageOps import ToggleChildrenSelectability, RemoveUnusedMaterialSlots, FastCentreCamera, CSPZT_Camera, AddLightWithConstraint, OpenProjectFolderOperator, SaveSelection, LoadSelection
 from .STOOL_part.AnimeOps import OBJECT_OT_add_noise_anim, NoiseAnimSettings, RemoveAllAnimations
-from .STOOL_part.RenderOps import RenderPresetSettings, RENDER_OT_create_presets, RENDER_OT_apply_preset
+from .STOOL_part.RenderOps import RenderPresetSettings, RENDER_OT_create_presets, RENDER_OT_apply_preset, RENDER_OT_open_output_folder
 from bpy.props import PointerProperty  # type: ignore
 ### 面板类函数 ###
 
@@ -64,9 +64,8 @@ class VIEW3D_PT_SnapshotPanel(bpy.types.Panel):
         row = box.row(align=True)
         row.operator("render.apply_preset", text="prev").preset_type = 'prev'
         row.operator("render.apply_preset", text="demo").preset_type = 'demo'
-
-        # 使用提示
-        # layout.label(text="按住Alt应用到所有场景", icon='INFO')
+        layout.operator("render.open_output_folder",
+                        text="打开输出文件夹", icon='FILE_FOLDER')
 
 
 ### 注册类函数 ###
@@ -93,6 +92,7 @@ allClass = [
     # ----------
     RENDER_OT_create_presets,
     RENDER_OT_apply_preset,
+    RENDER_OT_open_output_folder,
 ]
 
 

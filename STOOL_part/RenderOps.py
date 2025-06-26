@@ -4,7 +4,8 @@ from bpy.props import (StringProperty, IntProperty,  # type: ignore
 from bpy.types import Operator, PropertyGroup  # type: ignore
 import re
 import bpy  # type: ignore
-
+import platform
+import subprocess
 # --------------------------
 # 工具函数
 # --------------------------
@@ -31,6 +32,53 @@ class RenderPresetSettings(PropertyGroup):
         description="Toggle between absolute and relative paths",
         default=False
     )
+
+
+class RENDER_OT_open_output_folder(Operator):
+    """打开渲染输出文件夹"""
+    bl_idname = "render.open_output_folder"
+    bl_label = "打开输出文件夹"
+    bl_options = {'REGISTER'}
+
+    def execute(self, context):
+        filepath = context.scene.render.filepath
+
+        if not filepath:
+            self.report({'ERROR'}, "没有设置输出路径")
+            return {'CANCELLED'}
+
+        # 处理Blender相对路径(//)
+        if filepath.startswith("//"):
+            # 转换为绝对路径
+            abs_path = bpy.path.abspath(filepath)
+            output_dir = os.path.dirname(abs_path)
+        else:
+            # 已经是绝对路径
+            output_dir = os.path.dirname(filepath)
+
+        # 确保路径存在
+        if not os.path.exists(output_dir):
+            self.report({'WARNING'}, f"文件夹不存在: {output_dir}")
+            try:
+                os.makedirs(output_dir)
+                self.report({'INFO'}, f"已创建文件夹: {output_dir}")
+            except Exception as e:
+                self.report({'ERROR'}, f"无法创建文件夹: {str(e)}")
+                return {'CANCELLED'}
+
+        # 打开文件夹
+        try:
+            if platform.system() == 'Windows':
+                subprocess.Popen(['explorer', output_dir.replace('/', '\\')])
+            elif platform.system() == 'Darwin':  # macOS
+                subprocess.Popen(['open', output_dir])
+            else:  # Linux and other OS
+                subprocess.Popen(['xdg-open', output_dir])
+        except Exception as e:
+            self.report({'ERROR'}, f"无法打开文件夹: {str(e)}")
+            return {'CANCELLED'}
+
+        return {'FINISHED'}
 
 
 class RENDER_OT_create_presets(Operator):
