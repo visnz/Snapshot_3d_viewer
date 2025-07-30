@@ -1,6 +1,6 @@
 import bpy  # type: ignore
 from .STOOL_part.ParentsOps import SoloPick, SoloPick_delete, P2E, P2E_individual, SelectParent, RAQtoSubparent
-from .STOOL_part.StageOps import ToggleChildrenSelectability, RemoveUnusedMaterialSlots, FastCentreCamera, CSPZT_Camera, AddLightWithConstraint, OpenProjectFolderOperator, SaveSelection, LoadSelection
+from .STOOL_part.StageOps import ToggleChildrenSelectability, FastCentreCamera, CSPZT_Camera, AddLightWithConstraint, OpenProjectFolderOperator, SaveSelection, LoadSelection
 from .STOOL_part.AnimeOps import OBJECT_OT_add_noise_anim, NoiseAnimSettings, RemoveAllAnimations
 from .STOOL_part.RenderOps import RenderPresetSettings, RENDER_OT_create_presets, RENDER_OT_apply_preset, RENDER_OT_open_output_folder
 from .STOOL_part.TextureOps import TextureSearchProperties, INDEX_OT_build_texture_index, INDEX_OT_find_materials, INDEX_OT_select_objects_with_texture
@@ -36,7 +36,6 @@ class VIEW3D_PT_SnapshotPanel(bpy.types.Panel):
         layout.operator("wm.open_project_folder_visn")
         layout.operator("object.save_selection_visn")
         layout.operator("object.load_selection_visn")
-        layout.operator("object.remove_unused_material_slots_visn")
         layout.operator("object.toggle_children_selectability_visn")
 
         layout.separator()
@@ -88,7 +87,6 @@ allClass = [
     RenderPresetSettings,
     ToggleChildrenSelectability,
     RemoveAllAnimations,
-    RemoveUnusedMaterialSlots,
     VIEW3D_PT_SnapshotPanel,
     FastCentreCamera,
     CSPZT_Camera,

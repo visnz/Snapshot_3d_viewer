@@ -4,12 +4,12 @@ from . import STOOL
 from . import Snapshot
 import bpy  # type: ignore
 bl_info = {
-    "name": "Snapshot & SomeTools",
+    "name": "Snapshot_3d_viewer",
     "category": "3D View",
     "author": "GitHub Copilot & visnz",
     "blender": (4, 0, 0),
     "location": "UI",
-    "description": "快照工具，附赠一些小工具箱",
+    "description": "IPR快照工具、文件快速访问、一些小工具",
     "version": (1, 1, 0)
 }
 # 定义一个布尔属性，用于控制是否启用STOOL插件

@@ -299,40 +299,6 @@ class LoadSelection(bpy.types.Operator):
         return {'FINISHED'}
 
 
-class RemoveUnusedMaterialSlots(bpy.types.Operator):
-    """Remove unused material slots for all selected objects"""
-    bl_idname = "object.remove_unused_material_slots_visn"
-    bl_label = "移除未使用材质槽"
-    bl_description = "移除未使用的材质槽"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    @classmethod
-    def poll(cls, context):
-        return context.selected_objects is not None
-
-    def execute(self, context):
-        # 保存当前活动对象
-        active_obj = context.active_object
-
-        # 统计处理的物体数量
-        processed_objects = 0
-
-        for obj in context.selected_objects:
-            if obj.type in {'MESH', 'CURVE', 'SURFACE', 'FONT', 'META', 'GPENCIL'}:
-                # 临时将当前物体设为活动对象
-                context.view_layer.objects.active = obj
-                # 执行移除未使用材质槽的操作
-                bpy.ops.object.material_slot_remove_unused()
-                processed_objects += 1
-
-        # 恢复原来的活动对象
-        if active_obj:
-            context.view_layer.objects.active = active_obj
-
-        self.report({'INFO'}, f"Processed {processed_objects} objects")
-        return {'FINISHED'}
-
-
 # 使用Blender的属性系统来持久化存储状态
 bpy.types.Scene.children_select_state = bpy.props.BoolProperty(
     name="Children Select State",
