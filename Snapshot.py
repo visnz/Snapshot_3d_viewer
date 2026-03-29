@@ -35,7 +35,18 @@ frag_shader = '''
         fragColor = vec4(color.rgb * 1, color.a * opacity);
     }
 '''
-shader = GPUShader(vert_shader, frag_shader)
+shader = None  # ← 改为 None，延迟初始化
+def get_shader():
+    """延迟初始化 shader，确保 Blender 上下文已就绪"""
+    global shader
+    if shader is None:
+        try:
+            shader = GPUShader(vert_shader, frag_shader)
+        except TypeError:
+            # Vulkan 后端或其他不支持的配置
+            print("Warning: GPUShader initialization failed")
+            return None
+    return shader
 
 class SnapItem(bpy.types.PropertyGroup):
     name: bpy.props.StringProperty()
@@ -231,6 +242,9 @@ def check_snap_files(context):
 
 def draw_snap(area_id, region_width, region_height):
     global snap_tex, vis_state
+    shader = get_shader()
+    if shader is None:
+        return  # 安全地退出
     cur_area = bpy.context.area
     if cur_area and str(hash(cur_area.as_pointer()) % 10000).zfill(4) == area_id:
         check_snap_files(bpy.context)

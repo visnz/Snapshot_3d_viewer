@@ -21,6 +21,12 @@ def update_stool_enable(self, context):
     else:
         STOOL.unregister()
 
+def update_snapshot(self, context):
+    if context.preferences.addons[__name__].preferences.enable_snapshot:
+        Snapshot.register()
+    else:
+        Snapshot.unregister()
+
 
 def update_fastFileViewer_enable(self, context):
     if context.preferences.addons[__name__].preferences.enable_fastFileViewer:
@@ -44,17 +50,25 @@ class MyAddonPreferences(bpy.types.AddonPreferences):
         default=False,
         update=update_fastFileViewer_enable
     )  # type: ignore
+    enable_snapshot: bpy.props.BoolProperty(
+        name="启用Snapshot（Vulkan不支持，5.0以后不支持）",
+        description="启用Snapshot（Vulkan不支持，5.0以后不支持）",
+        default=False,
+        update=update_snapshot
+    )  # type: ignore
 
     def draw(self, context):
         layout = self.layout
         layout.prop(self, "enable_stool")
         layout.prop(self, "enable_fastFileViewer")
+        layout.prop(self, "enable_snapshot")
 
 
 def register():
     bpy.utils.register_class(MyAddonPreferences)
     PSRtoComp.register()
-    Snapshot.register()
+    if bpy.context.preferences.addons[__name__].preferences.enable_snapshot:
+        Snapshot.register()
     if bpy.context.preferences.addons[__name__].preferences.enable_fastFileViewer:
         FastFileViewer.register()
     if bpy.context.preferences.addons[__name__].preferences.enable_stool:
@@ -66,7 +80,8 @@ def unregister():
         FastFileViewer.unregister()
     if bpy.context.preferences.addons[__name__].preferences.enable_stool:
         STOOL.unregister()
-    Snapshot.unregister()
+    if bpy.context.preferences.addons[__name__].preferences.enable_snapshot:
+        Snapshot.unregister()
     PSRtoComp.unregister()
     bpy.utils.unregister_class(MyAddonPreferences)
 
