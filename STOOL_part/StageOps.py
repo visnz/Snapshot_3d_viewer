@@ -7,6 +7,101 @@ from .ParentsOps import centro_global  # type: ignore
 import subprocess
 import platform
 
+from collections import deque
+
+
+class DeleteEmptyNull(bpy.types.Operator):
+    bl_idname = "object.delete_empty_null_visn"
+    bl_label = "删除无内容的Empty"
+    bl_description = "删除场景中所有没有子级且没有数据的空物体，保护集合实例"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @staticmethod
+    def is_collection_instance(obj):
+        """检查对象是否是集合实例"""
+        return hasattr(obj, 'instance_type') and obj.instance_type == 'COLLECTION'
+
+    def delete_empty_objects_without_children(self):
+        """删除所有没有有效子物体的空对象，但保护集合实例"""
+        # 获取所有空对象
+        empty_objects = [
+            obj for obj in bpy.data.objects if obj.type == 'EMPTY']
+
+        if not empty_objects:
+            return 0
+
+        # 创建一个字典来记录每个对象是否应该保留
+        should_keep = {}
+
+        # 初始化：集合实例应该保留，其他空对象默认不保留
+        for obj in empty_objects:
+            should_keep[obj] = self.is_collection_instance(obj)
+
+        # 第一遍：标记所有直接包含非空子对象的空对象
+        for obj in empty_objects:
+            if not should_keep[obj]:
+                for child in obj.children:
+                    if child.type != 'EMPTY' or self.is_collection_instance(child):
+                        should_keep[obj] = True
+                        break
+
+        # 使用队列进行广度优先搜索，从下往上标记应该保留的对象
+        # 先收集所有空对象和它们的层级关系
+        level_dict = {}
+        for obj in empty_objects:
+            level = 0
+            current = obj
+            while current.parent and current.parent in empty_objects:
+                current = current.parent
+                level += 1
+            level_dict[obj] = level
+
+        # 按层级从高到低排序（从最底层开始）
+        sorted_objects = sorted(
+            empty_objects, key=lambda x: level_dict[x], reverse=True)
+
+        # 从底层向上标记
+        for obj in sorted_objects:
+            if not should_keep[obj]:
+                # 检查所有子对象，如果任何子对象应该保留，那么这个对象也应该保留
+                for child in obj.children:
+                    if child in should_keep and should_keep[child]:
+                        should_keep[obj] = True
+                        break
+
+        # 找出应该删除的空对象
+        to_delete = [obj for obj in empty_objects if not should_keep[obj]]
+
+        if not to_delete:
+            return 0
+
+        # 先解除所有父子关系
+        for obj in to_delete:
+            for child in list(obj.children):
+                child.parent = None
+
+        # 删除这些对象
+        delete_count = 0
+        for obj in to_delete:
+            try:
+                bpy.data.objects.remove(obj, do_unlink=True)
+                delete_count += 1
+            except ReferenceError:
+                # 对象可能已经被删除，跳过
+                continue
+
+        return delete_count
+
+    def execute(self, context):
+        deleted_count = self.delete_empty_objects_without_children()
+
+        if deleted_count > 0:
+            self.report({'INFO'}, f"删除了 {deleted_count} 个无内容的空对象")
+        else:
+            self.report({'INFO'}, "没有找到需要删除的空对象")
+
+        return {'FINISHED'}
+
 
 class FastCentreCamera(bpy.types.Operator):
     bl_idname = "object.fast_camera_visn"
