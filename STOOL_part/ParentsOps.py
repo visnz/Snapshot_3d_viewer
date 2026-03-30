@@ -19,6 +19,37 @@ def get_children(my_object):
     return [ob for ob in bpy.data.objects if ob.parent == my_object]
 
 
+class CAMERA_OT_create_focus_object(bpy.types.Operator):
+    """创建对焦对象+黑框"""
+    bl_idname = "camera.create_focus_object"
+    bl_label = "创建对焦对象"
+    bl_description = "为当前摄像机生成一个子空物体作为景深对焦对象，并启用外围遮黑"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        camera_obj = context.scene.camera
+        if not camera_obj:
+            self.report({"ERROR"}, "当前场景没有设置活跃摄像机。请先设置一个摄像机为场景相机。")
+            return {"CANCELLED"}
+        if camera_obj.type != 'CAMERA':
+            self.report({"ERROR"}, f"当前活跃物体 '{camera_obj.name}' 不是摄像机类型。")
+            return {"CANCELLED"}
+        focus_empty = bpy.data.objects.new("Focus_Object", None)
+        focus_empty.parent = camera_obj
+        focus_empty.location = (0, 0, -5)
+        context.collection.objects.link(focus_empty)
+        camera_data = camera_obj.data
+        camera_data.dof.focus_object = focus_empty
+        camera_data.show_passepartout = True
+        camera_data.passepartout_alpha = 1.0
+        focus_empty.select_set(True)
+        bpy.ops.object.parent_no_inverse_set(keep_transform=True)
+        focus_empty.select_set(False)
+        self.report(
+            {"INFO"}, f"已为摄像机 '{camera_obj.name}' 创建对焦空物体 '{focus_empty.name}'，并开启外围遮黑。")
+        return {"FINISHED"}
+
+
 class SoloPick(bpy.types.Operator):
     # 断开所选物体的所有父子级关系，捡出来放在世界层级，子级归更上一层父级管。
     bl_idname = "object.solo_pick_visn"

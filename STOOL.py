@@ -1,5 +1,5 @@
 import bpy  # type: ignore
-from .STOOL_part.ParentsOps import SoloPick, SoloPick_delete, P2E, P2E_individual, SelectParent, RAQtoSubparent
+from .STOOL_part.ParentsOps import SoloPick, SoloPick_delete, P2E, P2E_individual, SelectParent, RAQtoSubparent, CAMERA_OT_create_focus_object
 from .STOOL_part.StageOps import DeleteEmptyNull, ToggleChildrenSelectability, FastCentreCamera, CSPZT_Camera, AddLightWithConstraint, OpenProjectFolderOperator, SaveSelection, LoadSelection
 from .STOOL_part.AnimeOps import OBJECT_OT_add_noise_anim, NoiseAnimSettings, RemoveAllAnimations
 from .STOOL_part.RenderOps import RenderPresetSettings, RENDER_OT_create_presets, RENDER_OT_apply_preset, RENDER_OT_open_output_folder
@@ -27,6 +27,7 @@ class VIEW3D_PT_SnapshotPanel(bpy.types.Panel):
         layout.operator("object.release_all_children_to_subparent_visn")
         layout.operator("object.solo_pick_visn")
         layout.operator("object.solo_pick_delete_visn")
+        layout.operator("camera.create_focus_object")
 
         layout.separator()
         layout.label(text="搭建类")
@@ -100,6 +101,7 @@ allClass = [
     SaveSelection,
     LoadSelection,
     P2E,
+    CAMERA_OT_create_focus_object,
     P2E_individual,
     OBJECT_OT_add_noise_anim,
     NoiseAnimSettings,
